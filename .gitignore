@@ -1,0 +1,7 @@
+*.txt
+*.fa
+*.fasta
+*.o
+*.so
+*.a
+test_main
