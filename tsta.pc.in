@@ -1,0 +1,10 @@
+prefix=@PREFIX@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: tsta
+Description: SIMD-accelerated pairwise and multiple sequence alignment library
+Version: @VERSION@
+Libs: -L${libdir} -ltsta -lpthread
+Cflags: -I${includedir}

@@ -1,5 +1,5 @@
-#ifndef TSTA_COMMON_SIMD_H
-#define TSTA_COMMON_SIMD_H
+#ifndef TSTA_SIMD_H
+#define TSTA_SIMD_H
 
 #if defined(__AVX512F__) && defined(__AVX512BW__) && defined(__AVX512DQ__)
 #include <immintrin.h>

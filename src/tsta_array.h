@@ -13,12 +13,12 @@ typedef uint64_t u64;
   ({                                                                           \
     u64 __x = (x);                                                             \
     __x--;                                                                     \
-    __x |= __x >> 1;  /* handle  2 bit numbers */                              \
-    __x |= __x >> 2;  /* handle  4 bit numbers */                              \
-    __x |= __x >> 4;  /* handle  8 bit numbers */                              \
-    __x |= __x >> 8;  /* handle 16 bit numbers */                              \
-    __x |= __x >> 16; /* handle 32 bit numbers */                              \
-    __x |= __x >> 32; /* handle 64 bit numbers */                              \
+    __x |= __x >> 1;                                                           \
+    __x |= __x >> 2;                                                           \
+    __x |= __x >> 4;                                                           \
+    __x |= __x >> 8;                                                           \
+    __x |= __x >> 16;                                                          \
+    __x |= __x >> 32;                                                          \
     __x++;                                                                     \
     __x;                                                                       \
   })
@@ -93,12 +93,10 @@ typedef uint64_t u64;
     type *new_data;                                                            \
     u64 new_capacity;                                                          \
     u64 old_capacity;                                                          \
-                                                                               \
     if (!a)                                                                    \
       return -1;                                                               \
     if (min_capacity <= a->capacity)                                           \
       return 0;                                                                \
-                                                                               \
     old_capacity = a->capacity;                                                \
     new_capacity = old_capacity > 0 ? old_capacity : _min_array_capacity;      \
     while (new_capacity < min_capacity) {                                      \
@@ -108,7 +106,6 @@ typedef uint64_t u64;
       }                                                                        \
       new_capacity *= 2;                                                       \
     }                                                                          \
-                                                                               \
     new_data = (type *)realloc(a->data, sizeof(type) * new_capacity);          \
     if (!new_data)                                                             \
       return -1;                                                               \
