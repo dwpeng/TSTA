@@ -1,5 +1,10 @@
 # TSTA
 
+> **Note:** This project is derived from [bxskdh/TSTA](https://github.com/bxskdh/TSTA).
+> The core alignment algorithms remain unchanged. Modifications are limited to
+> engineering improvements: build system, public API design, C++ wrapper, test
+> coverage, and code formatting.
+
 Pairwise and multiple sequence alignment library accelerated by SIMD and threads.
 
 ## Introduction
