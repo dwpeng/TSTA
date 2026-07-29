@@ -18,16 +18,16 @@ typedef __m512i __mxxxi;
 #define mm_store _mm512_store_si512
 #define mm_set1_epi8 _mm512_set1_epi8
 #define mm_set1_epi32 _mm512_set1_epi32
-#define mm_slli(a)                                                             \
-  _mm512_alignr_epi8(                                                          \
-      a,                                                                       \
-      _mm512_inserti32x4(_mm512_shuffle_i32x4(a, a, _MM_SHUFFLE(2, 1, 0, 0)),  \
-                         _mm_setzero_si128(), 0),                              \
+#define mm_slli(a)                                                            \
+  _mm512_alignr_epi8(                                                         \
+      a,                                                                      \
+      _mm512_inserti32x4(_mm512_shuffle_i32x4(a, a, _MM_SHUFFLE(2, 1, 0, 0)), \
+                         _mm_setzero_si128(), 0),                             \
       16 - 1)
-#define mm_insert_epi8(a, b, c)                                                \
-  _mm512_inserti32x8(                                                          \
+#define mm_insert_epi8(a, b, c)                                               \
+  _mm512_inserti32x8(                                                         \
       a, _mm256_insert_epi8(_mm512_extracti32x8_epi32(a, 0), b, c), 0)
-#define mm_extract_epi8(a)                                                     \
+#define mm_extract_epi8(a)                                                    \
   _mm256_extract_epi8(_mm512_extracti32x8_epi32(a, 1), 63 % 32)
 
 #define mm_add_epi8 _mm512_add_epi8
@@ -54,14 +54,15 @@ typedef __m512i __mxxxi;
 #define mm_free(a) tsta_aligned_free(a)
 
 #define mm0_epi8cvt32(a) _mm512_cvtepi8_epi32(_mm512_castsi512_si128(a))
-#define mm_epi8cvt32(a, b) _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(a, b))
+#define mm_epi8cvt32(a, b)                                                    \
+  _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(a, b))
 #define mm_reduce_max_epi32(a) _mm512_reduce_max_epi32(a)
 
-#define mm_reduceto16_epi8(a)                                                  \
-  _mm512_add_epi16(_mm512_cvtepi8_epi16(_mm512_castsi512_si256(a)),            \
+#define mm_reduceto16_epi8(a)                                                 \
+  _mm512_add_epi16(_mm512_cvtepi8_epi16(_mm512_castsi512_si256(a)),           \
                    _mm512_cvtepi8_epi16(_mm512_extracti32x8_epi32(a, 1)))
-#define mm_hadd_epi8(a)                                                        \
-  _mm512_add_epi32(_mm512_cvtepi16_epi32(_mm512_castsi512_si256(a)),           \
+#define mm_hadd_epi8(a)                                                       \
+  _mm512_add_epi32(_mm512_cvtepi16_epi32(_mm512_castsi512_si256(a)),          \
                    _mm512_cvtepi16_epi32(_mm512_extracti32x8_epi32(a, 1)))
 #define mm_reduce_epi8(a) _mm512_reduce_add_epi32(a)
 
@@ -74,8 +75,8 @@ typedef __m256i __mxxxi;
 #define mm_store _mm256_store_si256
 #define mm_set1_epi8 _mm256_set1_epi8
 #define mm_set1_epi32 _mm256_set1_epi32
-#define mm_slli(a)                                                             \
-  _mm256_alignr_epi8(                                                          \
+#define mm_slli(a)                                                            \
+  _mm256_alignr_epi8(                                                         \
       a, _mm256_permute2x128_si256(a, a, _MM_SHUFFLE(0, 0, 2, 0)), 16 - 1)
 #define mm_insert_epi8(a, b, c) _mm256_insert_epi8(a, b, c)
 #define mm_extract_epi8(a) _mm256_extract_epi8(a, 31)
@@ -104,20 +105,20 @@ typedef __m256i __mxxxi;
 #define mm_free(a) tsta_aligned_free(a)
 
 #define mm0_epi8cvt32(a) _mm256_cvtepi8_epi32(_mm256_castsi256_si128(a))
-#define mm_epi8cvt32(a, b)                                                     \
+#define mm_epi8cvt32(a, b)                                                    \
   _mm256_cvtepi8_epi32(_mm256_castsi256_si128(_mm256_permute4x64_epi64(a, b)))
 #define mm_reduce_max_epi32(a) mm256_max_reduce(a)
 
-#define mm_reduceto16_epi8(a)                                                  \
-  _mm256_add_epi16(_mm256_cvtepi8_epi16(_mm256_castsi256_si128(a)),            \
-                   _mm256_cvtepi8_epi16(_mm256_castsi256_si128(                \
+#define mm_reduceto16_epi8(a)                                                 \
+  _mm256_add_epi16(_mm256_cvtepi8_epi16(_mm256_castsi256_si128(a)),           \
+                   _mm256_cvtepi8_epi16(_mm256_castsi256_si128(               \
                        _mm256_permute2x128_si256(a, a, 1))))
-#define mm_hadd_epi8(a)                                                        \
-  _mm256_hadd_epi16(                                                           \
-      _mm256_hadd_epi16(_mm256_hadd_epi16(a, a), _mm256_hadd_epi16(a, a)),     \
+#define mm_hadd_epi8(a)                                                       \
+  _mm256_hadd_epi16(                                                          \
+      _mm256_hadd_epi16(_mm256_hadd_epi16(a, a), _mm256_hadd_epi16(a, a)),    \
       _mm256_hadd_epi16(_mm256_hadd_epi16(a, a), _mm256_hadd_epi16(a, a)))
-#define mm_reduce_epi8(a)                                                      \
-  _mm256_extract_epi16(                                                        \
+#define mm_reduce_epi8(a)                                                     \
+  _mm256_extract_epi16(                                                       \
       _mm256_add_epi16(a, _mm256_permute2x128_si256(a, a, 1)), 0)
 
 #else
@@ -160,10 +161,10 @@ typedef __m128i __mxxxi;
 #define mm_epi8cvt32(a, b) _mm_cvtepi8_epi32(_mm_srli_si128(a, b * 4))
 #define mm_reduce_max_epi32(a) mm128_max_reduce(a)
 
-#define mm_reduceto16_epi8(a)                                                  \
+#define mm_reduceto16_epi8(a)                                                 \
   _mm_add_epi16(_mm_cvtepi8_epi16(a), _mm_cvtepi8_epi16(_mm_srli_si128(a, 8)))
-#define mm_hadd_epi8(a)                                                        \
-  _mm_hadd_epi16(_mm_hadd_epi16(_mm_hadd_epi16(a, a), _mm_hadd_epi16(a, a)),   \
+#define mm_hadd_epi8(a)                                                       \
+  _mm_hadd_epi16(_mm_hadd_epi16(_mm_hadd_epi16(a, a), _mm_hadd_epi16(a, a)),  \
                  _mm_hadd_epi16(_mm_hadd_epi16(a, a), _mm_hadd_epi16(a, a)))
 #define mm_reduce_epi8(a) _mm_extract_epi16(a, 0)
 #endif

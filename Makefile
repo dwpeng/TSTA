@@ -21,7 +21,7 @@ SRCS := $(wildcard src/tsta_*.c)
 OBJS := $(SRCS:.c=.o)
 SHARED_OBJS := $(SRCS:.c=.shared.o)
 
-.PHONY: all clean shared static install uninstall check test
+.PHONY: all clean shared static install uninstall check test check_cpp examples check_examples
 
 all: static shared
 
@@ -43,14 +43,33 @@ src/%.o: src/%.c
 src/%.shared.o: src/%.c
 	$(CC) $(CFLAGS) -fPIC -c $< -o $@
 
+CXX ?= g++
+CXXFLAGS ?= -O3 -g -march=native -fvisibility=hidden
+
+test_cpp: $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) $(INCLUDE_DIRS) -std=c++17 -o test/test_cpp test/main.cpp $(STATIC_LIB)
+
+check_cpp: test_cpp
+	./test/test_cpp
+
 clean:
-	rm -f src/tsta_*.o src/tsta_*.shared.o $(STATIC_LIB) $(SHARED_LIB) $(SHARED_LIB_MAJOR) $(SHARED_LIB_FULL) test/test_main
+	rm -f src/tsta_*.o src/tsta_*.shared.o $(STATIC_LIB) $(SHARED_LIB) $(SHARED_LIB_MAJOR) $(SHARED_LIB_FULL) test/test_main test/test_cpp examples/example_c examples/example_cpp
 
 test: $(STATIC_LIB)
 	$(CC) $(CFLAGS) -o test/test_main test/main.c $(STATIC_LIB)
 
 check: test
 	./test/test_main
+
+# ── Examples ─────────────────────────────────────────────────────────
+
+examples: $(STATIC_LIB)
+	$(CC) $(CFLAGS) -o examples/example_c examples/main.c $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) $(INCLUDE_DIRS) -std=c++17 -o examples/example_cpp examples/main.cc $(STATIC_LIB)
+
+check_examples: examples
+	./examples/example_c
+	./examples/example_cpp
 
 # Installation
 PREFIX ?= /usr/local
