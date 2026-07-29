@@ -9,7 +9,7 @@ SIMD-accelerated global sequence alignment using striped anti-diagonal DP with d
 ## Installation
 
 ```bash
-git clone https://github.com/bxskdh/TSTA.git
+git clone https://github.com/dwpeng/TSTA
 cd TSTA
 make
 ```
