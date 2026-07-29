@@ -21,7 +21,50 @@ SRCS := $(wildcard src/tsta_*.c)
 OBJS := $(SRCS:.c=.o)
 SHARED_OBJS := $(SRCS:.c=.shared.o)
 
-.PHONY: all clean shared static install uninstall check test check_cpp examples check_examples
+# ── Sanitizer support ──────────────────────────────────────────────────
+# Usage:
+#   make clean all SANITIZE=asan       # address + leak
+#   make clean all SANITIZE=ubsan      # undefined behavior
+#   make clean all SANITIZE=all        # both
+#   make check_sanitize                # rebuild + test with asan+ubsan
+#
+# Also respected: ASAN_OPTIONS, UBSAN_OPTIONS (passed to test runs).
+
+SANITIZE ?=
+
+ifeq ($(SANITIZE),1)
+  SANITIZE_FLAGS := -fsanitize=address,leak,undefined
+  SANITIZE_ASAN := 1
+  SANITIZE_UBSAN := 1
+else ifeq ($(SANITIZE),asan)
+  SANITIZE_FLAGS := -fsanitize=address,leak
+  SANITIZE_ASAN := 1
+else ifeq ($(SANITIZE),ubsan)
+  SANITIZE_FLAGS := -fsanitize=undefined
+  SANITIZE_UBSAN := 1
+else ifeq ($(SANITIZE),all)
+  SANITIZE_FLAGS := -fsanitize=address,leak,undefined
+  SANITIZE_ASAN := 1
+  SANITIZE_UBSAN := 1
+endif
+
+ifneq ($(SANITIZE),)
+  SANITIZE_FLAGS += -fno-omit-frame-pointer -fno-sanitize-recover=all
+  override CFLAGS := -O0 -g $(SANITIZE_FLAGS) $(filter-out -O3 -O2 -O1 -g,$(CFLAGS))
+  override CXXFLAGS := -O0 -g $(SANITIZE_FLAGS) $(filter-out -O3 -O2 -O1 -g,$(CXXFLAGS))
+
+  # Test runner for sanitized builds
+  define run_sanitized
+    $(if $(SANITIZE_ASAN),ASAN_OPTIONS=detect_leaks=1:abort_on_error=1)
+    $(if $(SANITIZE_UBSAN),UBSAN_OPTIONS=halt_on_error=1)
+    $(1)
+  endef
+else
+  TEST_RUNNER :=
+endif
+
+.PHONY: all clean shared static install uninstall check test check_cpp examples \
+        check_examples check_sanitize
 
 all: static shared
 
@@ -50,7 +93,7 @@ test_cpp: $(STATIC_LIB)
 	$(CXX) $(CXXFLAGS) $(INCLUDE_DIRS) -std=c++17 -o test/test_cpp test/main.cpp $(STATIC_LIB)
 
 check_cpp: test_cpp
-	./test/test_cpp
+	$(if $(SANITIZE),$(call run_sanitized,./test/test_cpp),./test/test_cpp)
 
 clean:
 	rm -f src/tsta_*.o src/tsta_*.shared.o $(STATIC_LIB) $(SHARED_LIB) $(SHARED_LIB_MAJOR) $(SHARED_LIB_FULL) test/test_main test/test_cpp examples/example_c examples/example_cpp
@@ -59,7 +102,14 @@ test: $(STATIC_LIB)
 	$(CC) $(CFLAGS) -o test/test_main test/main.c $(STATIC_LIB)
 
 check: test
-	./test/test_main
+	$(if $(SANITIZE),$(call run_sanitized,./test/test_main),./test/test_main)
+
+check_sanitize:
+	@$(MAKE) clean
+	@$(MAKE) check SANITIZE=all
+	@$(MAKE) check_cpp SANITIZE=all
+	@$(MAKE) check_examples SANITIZE=all
+	@echo "=== All sanitizer checks passed ==="
 
 # ── Examples ─────────────────────────────────────────────────────────
 
@@ -68,8 +118,8 @@ examples: $(STATIC_LIB)
 	$(CXX) $(CXXFLAGS) $(INCLUDE_DIRS) -std=c++17 -o examples/example_cpp examples/main.cc $(STATIC_LIB)
 
 check_examples: examples
-	./examples/example_c
-	./examples/example_cpp
+	$(if $(SANITIZE),$(call run_sanitized,./examples/example_c),./examples/example_c)
+	$(if $(SANITIZE),$(call run_sanitized,./examples/example_cpp),./examples/example_cpp)
 
 # Installation
 PREFIX ?= /usr/local
