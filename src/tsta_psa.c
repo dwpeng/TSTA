@@ -704,7 +704,6 @@ tsta_psa_capture_result(tsta_psa_result_t* result, tsta_psa_state* state)
 
   trace = &state->trace.result;
   tsta_psa_result_free(result);
-  result->score = state->ms;
   result->aln_length = trace->aligned_length;
   result->aln[0] = (char*)malloc(trace->aligned_length + 1);
   result->aln[1] = (char*)malloc(trace->aligned_length + 1);
@@ -719,6 +718,29 @@ tsta_psa_capture_result(tsta_psa_result_t* result, tsta_psa_state* state)
   if (tsta_psa_build_cigar(trace, result) != 0) {
     tsta_psa_result_free(result);
     return -1;
+  }
+
+  /* Compute score from aligned sequences (state->ms tracks global max
+   * across all DP cells, not the final cell required for global alignment) */
+  {
+    int score = 0, in_gap1 = 0, in_gap2 = 0;
+    for (size_t i = 0; i < trace->aligned_length; i++) {
+      char a = trace->aligned_seq1[i];
+      char b = trace->aligned_seq2[i];
+      if (a == '-') {
+        score += state->E;
+        if (!in_gap1) { score += state->O; in_gap1 = 1; }
+        in_gap2 = 0;
+      } else if (b == '-') {
+        score += state->E;
+        if (!in_gap2) { score += state->O; in_gap2 = 1; }
+        in_gap1 = 0;
+      } else {
+        score += (a == b) ? state->M : state->X;
+        in_gap1 = in_gap2 = 0;
+      }
+    }
+    result->score = score;
   }
   return 0;
 }
