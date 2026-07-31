@@ -53,7 +53,12 @@ test_psa_aligner_reuse()
   assert(r1.score() != 0);
 
   auto r2 = aln.align("GGGGCCCCAAAATTTT", "GGGGCCCCTTTTAAAA");
-  assert(r2.score() != 0);
+  /* This pair has no net-positive alignment under the default scoring:
+     the two 4-base gap runs (open + 4*extend = -12 each) cancel the 12
+     matches (+24), so the optimal global score is exactly 0. */
+  assert(r2.score() == 0);
+  assert(r2.cigar() == "8M4I4M4D");
+  assert(r2.aln_length() == 20);
 
   /* move */
   tsta::PsaAligner aln2 = std::move(aln);

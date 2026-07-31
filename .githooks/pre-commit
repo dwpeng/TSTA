@@ -1,0 +1,27 @@
+#!/bin/sh
+# pre-commit hook: refuse the commit if any staged source file is not
+# clang-format clean. Fix with `make format`, then `git add` and retry.
+#
+# Enabled by `make install-hooks` (sets `git config core.hooksPath .githooks`).
+
+set -e
+
+# Staged source files (added/copied/modified/renamed).
+files=$(git diff --cached --name-only --diff-filter=ACMR \
+  | grep -E '\.(c|h|cpp|cc|hpp)$' || true)
+
+[ -z "$files" ] && exit 0
+
+if ! command -v clang-format >/dev/null 2>&1; then
+  echo "pre-commit: clang-format not found; skipping format check" >&2
+  exit 0
+fi
+
+if ! echo "$files" | xargs clang-format --dry-run --Werror >/dev/null 2>&1; then
+  echo "pre-commit: staged files are not clang-format clean:" >&2
+  echo "$files" | xargs clang-format --dry-run 2>&1 | head -20 >&2
+  echo "Run 'make format', then 'git add' the files and commit again." >&2
+  exit 1
+fi
+
+exit 0

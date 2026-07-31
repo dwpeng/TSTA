@@ -5,7 +5,6 @@
 #include "tsta_array.h"
 #include "tsta_simd.h"
 
-#include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -43,6 +42,9 @@ typedef struct tsta_trace_block_store {
 tsta_trace_block_store_t* tsta_trace_block_store_create(size_t length,
                                                         size_t chunk_size);
 void tsta_trace_block_store_destroy(tsta_trace_block_store_t* store);
+void tsta_trace_block_store_ensure(tsta_trace_block_store_t* store,
+                                   size_t length,
+                                   size_t chunk_size);
 
 static inline uint8_t*
 tsta_trace_block_store_chunk(tsta_trace_block_store_t* store,
@@ -78,10 +80,10 @@ tsta_trace_block_store_set_byte(tsta_trace_block_store_t* store,
 
 /* ── PSA internal state ─────────────────────────────────────────────── */
 
+/* Single packed matrix: each byte holds back (bits 0-1), eback (bits 2-4,
+ * value+2) and fback (bits 5-7, value+2). */
 typedef struct tsta_psa_trace_matrices {
   char** back;
-  char** eback;
-  char** fback;
   int rows;
   int cols;
 } tsta_psa_trace_matrices;
@@ -119,9 +121,6 @@ typedef struct tsta_psa_state {
   int fmaxtag;
   int length[4];
   int trace_enabled;
-  volatile int ms;
-  pthread_mutex_t mutex;
-  volatile int lock;
 } tsta_psa_state;
 
 /* ── MSA internal state ─────────────────────────────────────────────── */
@@ -141,9 +140,6 @@ typedef struct tsta_msa_state {
   int lmaxtag;
   int length1;
   int length2;
-  char z;
-  pthread_mutex_t mutex;
-  volatile int lock;
 } tsta_msa_state;
 
 /* ── Internal init / helpers ────────────────────────────────────────── */

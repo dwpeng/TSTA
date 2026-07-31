@@ -17,7 +17,8 @@ SHARED_LIB_FULL := $(SHARED_LIB_MAJOR).$(VERSION_MINOR).$(VERSION_PATCH)
 
 INCLUDE_DIRS := -I./src -I./include
 CFLAGS += $(INCLUDE_DIRS)
-SRCS := $(wildcard src/tsta_*.c)
+# Keep the standalone SIMD-only module out of the threaded main library.
+SRCS := $(filter-out src/tsta_psa_simd.c,$(wildcard src/tsta_*.c))
 OBJS := $(SRCS:.c=.o)
 SHARED_OBJS := $(SRCS:.c=.shared.o)
 
@@ -64,7 +65,8 @@ else
 endif
 
 .PHONY: all clean shared static install uninstall check test check_cpp examples \
-        check_examples check_sanitize
+        check_examples check_sanitize psa_simd test_psa_simd check_psa_simd \
+        verify_psa_simd_nopthread format check-format install-hooks
 
 all: static shared
 
@@ -79,6 +81,42 @@ $(SHARED_LIB_FULL): $(SHARED_OBJS)
 	$(CC) -shared -Wl,-soname,$(SHARED_LIB_MAJOR) -o $@ $^ -lpthread
 	ln -sf $(SHARED_LIB_FULL) $(SHARED_LIB_MAJOR)
 	ln -sf $(SHARED_LIB_MAJOR) $(SHARED_LIB)
+
+# ── Standalone SIMD-only PSA module (single-threaded, no pthread) ───────
+# Builds and links with no -lpthread. Output is bit-identical to the
+# threaded PSA for the same configuration and inputs.
+
+PSA_SIMD_STATIC_LIB   := libtsta_psa_simd.a
+PSA_SIMD_SHARED_MAJOR := libtsta_psa_simd.so.1
+PSA_SIMD_SHARED_FULL  := $(PSA_SIMD_SHARED_MAJOR).0.0
+
+# The module reuses the common helpers (config/state/result/aligned alloc),
+# so the standalone archive bundles tsta_common.o alongside it.
+$(PSA_SIMD_STATIC_LIB): src/tsta_common.o src/tsta_psa_simd.o
+	$(AR) $(ARFLAGS) $@ $^
+
+$(PSA_SIMD_SHARED_FULL): src/tsta_common.shared.o src/tsta_psa_simd.shared.o
+	$(CC) -shared -Wl,-soname,$(PSA_SIMD_SHARED_MAJOR) -o $@ $^
+	ln -sf $(PSA_SIMD_SHARED_FULL) $(PSA_SIMD_SHARED_MAJOR)
+	ln -sf $(PSA_SIMD_SHARED_MAJOR) libtsta_psa_simd.so
+
+psa_simd: $(PSA_SIMD_STATIC_LIB) $(PSA_SIMD_SHARED_FULL)
+
+test_psa_simd: $(STATIC_LIB) $(PSA_SIMD_STATIC_LIB)
+	$(CC) $(CFLAGS) -o test/test_psa_simd test/test_psa_simd.c $(STATIC_LIB) $(PSA_SIMD_STATIC_LIB)
+
+check_psa_simd: test_psa_simd
+	$(if $(SANITIZE),$(call run_sanitized,./test/test_psa_simd),./test/test_psa_simd)
+
+verify_psa_simd_nopthread: $(PSA_SIMD_STATIC_LIB) $(PSA_SIMD_SHARED_FULL)
+	@if nm $(PSA_SIMD_STATIC_LIB) | grep -Ei 'pthread|threadpool'; then \
+	  echo "FAIL: pthread/threadpool symbols in $(PSA_SIMD_STATIC_LIB)"; exit 1; \
+	else \
+	  echo "OK: no pthread/threadpool symbols in $(PSA_SIMD_STATIC_LIB)"; fi
+	@if nm -D $(PSA_SIMD_SHARED_FULL) | grep -Ei 'pthread|threadpool'; then \
+	  echo "FAIL: pthread/threadpool symbols in $(PSA_SIMD_SHARED_FULL)"; exit 1; \
+	else \
+	  echo "OK: no pthread/threadpool symbols in $(PSA_SIMD_SHARED_FULL)"; fi
 
 src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -95,8 +133,22 @@ test_cpp: $(STATIC_LIB)
 check_cpp: test_cpp
 	$(if $(SANITIZE),$(call run_sanitized,./test/test_cpp),./test/test_cpp)
 
+# ── Formatting (clang-format) ──────────────────────────────────────────
+
+FORMAT_FILES := $(wildcard src/*.c src/*.h include/*.h test/*.c test/*.cpp)
+
+format:
+	clang-format -i $(FORMAT_FILES)
+
+check-format:
+	clang-format --dry-run --Werror $(FORMAT_FILES)
+
+# Use the project-local hooks (see .githooks/pre-commit).
+install-hooks:
+	git config core.hooksPath .githooks
+
 clean:
-	rm -f src/tsta_*.o src/tsta_*.shared.o $(STATIC_LIB) $(SHARED_LIB) $(SHARED_LIB_MAJOR) $(SHARED_LIB_FULL) test/test_main test/test_cpp examples/example_c examples/example_cpp
+	rm -f src/tsta_*.o src/tsta_*.shared.o $(STATIC_LIB) $(SHARED_LIB) $(SHARED_LIB_MAJOR) $(SHARED_LIB_FULL) test/test_main test/test_cpp examples/example_c examples/example_cpp $(PSA_SIMD_STATIC_LIB) libtsta_psa_simd.so $(PSA_SIMD_SHARED_MAJOR) $(PSA_SIMD_SHARED_FULL) test/test_psa_simd
 
 test: $(STATIC_LIB)
 	$(CC) $(CFLAGS) -o test/test_main test/main.c $(STATIC_LIB)

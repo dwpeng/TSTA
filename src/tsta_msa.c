@@ -129,6 +129,8 @@ msa_workspace_resize(msa_thread_workspace* ws,
   old_cap = ws->capacity_num;
   if (ws->capacity_num < num) {
     char** tmp;
+    char* tmp_c;
+    int* tmp_i;
     tmp = (char**)realloc(ws->f_temp, (size_t)num * sizeof(char*));
     if (!tmp)
       return -1;
@@ -151,19 +153,33 @@ msa_workspace_resize(msa_thread_workspace* ws,
       ws->VC1[i] = NULL;
       ws->r_s[i] = NULL;
     }
+    /* Grow the scalar lane buffers too — previously they were sized only on
+       the FIRST grow and became too small on later grows (latent OOB once
+       the workspace is wired into block_line_alignment). */
+    tmp_c = (char*)realloc(ws->v0, (size_t)num);
+    if (!tmp_c)
+      return -1;
+    ws->v0 = tmp_c;
+    tmp_c = (char*)realloc(ws->vc_1, (size_t)num);
+    if (!tmp_c)
+      return -1;
+    ws->vc_1 = tmp_c;
+    tmp_c = (char*)realloc(ws->vc_2, (size_t)num);
+    if (!tmp_c)
+      return -1;
+    ws->vc_2 = tmp_c;
+    tmp_i = (int*)realloc(ws->pd, (size_t)num * sizeof(int));
+    if (!tmp_i)
+      return -1;
+    ws->pd = tmp_i;
+    tmp_i = (int*)realloc(ws->te, (size_t)num * sizeof(int));
+    if (!tmp_i)
+      return -1;
+    ws->te = tmp_i;
+
     ws->capacity_num = num;
   }
 
-  if (!ws->v0)
-    ws->v0 = (char*)malloc((size_t)ws->capacity_num);
-  if (!ws->vc_1)
-    ws->vc_1 = (char*)malloc((size_t)ws->capacity_num);
-  if (!ws->vc_2)
-    ws->vc_2 = (char*)malloc((size_t)ws->capacity_num);
-  if (!ws->pd)
-    ws->pd = (int*)malloc((size_t)ws->capacity_num * sizeof(int));
-  if (!ws->te)
-    ws->te = (int*)malloc((size_t)ws->capacity_num * sizeof(int));
   if (!ws->v0 || !ws->vc_1 || !ws->vc_2 || !ws->pd || !ws->te)
     return -1;
 
@@ -236,7 +252,6 @@ tsta_msa_apply_config(tsta_msa_aligner* aligner, const tsta_config* config)
 {
   aligner->config = config ? *config : tsta_config_make_default();
   tsta_init_msa_state(&aligner->state, &aligner->config, block);
-  aligner->state.z = 0;
 }
 
 static void
@@ -307,69 +322,50 @@ pack_sequence_for_simd(tsta_msa_aligner* aligner,
 
 /* ── Trace storage (memory only) ───────────────────────────────────── */
 
-static void
-tsta_msa_free_node_traces(tsta_node_t* node)
+/* Grow (or create) the three trace stores so they are reused across
+ * alignment steps instead of being destroyed and recreated per step. */
+static int
+tsta_msa_ensure_node_traces(tsta_node_t* node, size_t trace_length)
 {
   if (!node)
-    return;
-  if (node->source_store) {
-    tsta_trace_block_store_destroy(node->source_store);
-    node->source_store = NULL;
+    return -1;
+  if (!node->source_store) {
+    node->source_store = tsta_trace_block_store_create(trace_length, 4096);
+    if (!node->source_store)
+      return -1;
+  } else {
+    tsta_trace_block_store_ensure(node->source_store, trace_length, 4096);
   }
-  if (node->esource_store) {
-    tsta_trace_block_store_destroy(node->esource_store);
-    node->esource_store = NULL;
+  if (!node->esource_store) {
+    node->esource_store = tsta_trace_block_store_create(trace_length, 4096);
+    if (!node->esource_store)
+      return -1;
+  } else {
+    tsta_trace_block_store_ensure(node->esource_store, trace_length, 4096);
   }
-  if (node->fsource_store) {
-    tsta_trace_block_store_destroy(node->fsource_store);
-    node->fsource_store = NULL;
+  if (!node->fsource_store) {
+    node->fsource_store = tsta_trace_block_store_create(trace_length, 4096);
+    if (!node->fsource_store)
+      return -1;
+  } else {
+    tsta_trace_block_store_ensure(node->fsource_store, trace_length, 4096);
   }
-}
-
-static void
-tsta_msa_free_all_traces(tsta_graph_t* graph)
-{
-  if (!graph || !graph->sort.data)
-    return;
-  for (int i = 0; i < graph->len; i++)
-    tsta_msa_free_node_traces(tsta_graph_sort_node(graph, i));
+  return 0;
 }
 
 static int
-tsta_msa_alloc_traces(tsta_graph_t* graph, size_t trace_length)
+tsta_msa_ensure_all_traces(tsta_graph_t* graph, size_t trace_length)
 {
   if (!graph || !graph->sort.data || trace_length == 0)
     return -1;
 
   for (int i = 0; i < graph->len; i++) {
-    tsta_node_t* node = tsta_graph_sort_node(graph, i);
-    if (!node)
-      continue;
-
-    tsta_msa_free_node_traces(node);
-    node->source_store = tsta_trace_block_store_create(trace_length, 4096);
-    node->esource_store = tsta_trace_block_store_create(trace_length, 4096);
-    node->fsource_store = tsta_trace_block_store_create(trace_length, 4096);
-    if (!node->source_store || !node->esource_store || !node->fsource_store) {
-      tsta_msa_free_all_traces(graph);
+    if (tsta_msa_ensure_node_traces(tsta_graph_sort_node(graph, i),
+                                    trace_length)
+        != 0)
       return -1;
-    }
   }
   return 0;
-}
-
-static void
-tsta_msa_release_alignment_work_buffers(tsta_graph_t* graph)
-{
-  if (!graph || !graph->nodes.data)
-    return;
-  for (size_t i = 0; i < graph->nodes.length; i++) {
-    tsta_node_t* node = &graph->nodes.data[i];
-    if (!node)
-      continue;
-    free(node->simple_sorce);
-    node->simple_sorce = NULL;
-  }
 }
 
 /* ── Result capture ────────────────────────────────────────────────── */
@@ -499,7 +495,8 @@ block_line_alignment(tsta_graph_t* graph,
                      char* seq,
                      int nv,
                      int pc2,
-                     tsta_msa_state* state)
+                     tsta_msa_state* state,
+                     msa_thread_workspace* ws)
 {
   int m1, m2, m3;
   m1 = m2 = m3 = 0;
@@ -509,12 +506,6 @@ block_line_alignment(tsta_graph_t* graph,
   short reduce = 0;
   int original_pre_num = row->in;
   int pre_num = original_pre_num > 0 ? original_pre_num : 1;
-  size_t row_width = (size_t)state->B;
-  size_t row_alignment = (size_t)block;
-  if (row_width < row_alignment)
-    row_width = row_alignment;
-  else if (row_width % row_alignment != 0)
-    row_width += row_alignment - (row_width % row_alignment);
 
   size_t trace_chunk_index = (size_t)pc2 / (size_t)state->W;
   uint8_t* source_chunk =
@@ -530,48 +521,22 @@ block_line_alignment(tsta_graph_t* graph,
           ? tsta_trace_block_store_chunk(row->fsource_store, trace_chunk_index)
           : NULL;
 
-  char* h_g = NULL;
-  char(*f_temp)[row_width] = NULL;
-  char(*VC2)[row_width] = NULL;
-  char(*VC1)[row_width] = NULL;
-  char(*r_s)[row_width] = NULL;
-  char* v0 = NULL;
-  char* vc_1 = NULL;
-  char* vc_2 = NULL;
-  int* pd = NULL;
-  int* te = NULL;
-
   if (!source_chunk || !esource_chunk || !fsource_chunk)
     return;
 
-  h_g = (char*)tsta_aligned_malloc((size_t)state->L, 64);
-  f_temp =
-      (char(*)[row_width])tsta_aligned_malloc((size_t)pre_num * row_width, 64);
-  VC2 =
-      (char(*)[row_width])tsta_aligned_malloc((size_t)pre_num * row_width, 64);
-  VC1 =
-      (char(*)[row_width])tsta_aligned_malloc((size_t)pre_num * row_width, 64);
-  r_s =
-      (char(*)[row_width])tsta_aligned_malloc((size_t)pre_num * row_width, 64);
-  v0 = (char*)malloc((size_t)pre_num);
-  vc_1 = (char*)malloc((size_t)pre_num);
-  vc_2 = (char*)malloc((size_t)pre_num);
-  pd = (int*)malloc((size_t)pre_num * sizeof(int));
-  te = (int*)malloc((size_t)pre_num * sizeof(int));
-  if (!h_g || !f_temp || !VC2 || !VC1 || !r_s || !v0 || !vc_1 || !vc_2 || !pd
-      || !te) {
-    tsta_aligned_free(h_g);
-    tsta_aligned_free(f_temp);
-    tsta_aligned_free(VC2);
-    tsta_aligned_free(VC1);
-    tsta_aligned_free(r_s);
-    free(v0);
-    free(vc_1);
-    free(vc_2);
-    free(pd);
-    free(te);
-    return;
-  }
+  /* Reusable per-thread buffers from the workspace (rows are mm_malloc'd,
+   * block-aligned; row width == state->B == block, matching the original
+   * contiguous allocations). */
+  char* h_g = ws->h_g;
+  char** f_temp = ws->f_temp;
+  char** VC2 = ws->VC2;
+  char** VC1 = ws->VC1;
+  char** r_s = ws->r_s;
+  char* v0 = ws->v0;
+  char* vc_1 = ws->vc_1;
+  char* vc_2 = ws->vc_2;
+  int* pd = ws->pd;
+  int* te = ws->te;
 
   if (original_pre_num == 0) {
     if (block_i == 0) {
@@ -956,16 +921,6 @@ block_line_alignment(tsta_graph_t* graph,
       row->node_status = 3;
     }
   }
-  tsta_aligned_free(h_g);
-  tsta_aligned_free(f_temp);
-  tsta_aligned_free(VC2);
-  tsta_aligned_free(VC1);
-  tsta_aligned_free(r_s);
-  free(v0);
-  free(vc_1);
-  free(vc_2);
-  free(pd);
-  free(te);
 }
 
 /* ── MSA block alignment dispatch ──────────────────────────────────── */
@@ -991,13 +946,41 @@ tsta_msa_block_alignment(void* pa)
   int a1 =
       (((block_i - state->maxtag) > 0) * (block_i - state->maxtag) + block_l)
       * state->L;
+
+  /* max pre_num over the nodes this task will process, so the workspace
+   * capacity covers every block_line_alignment call below. */
+  int max_in = 1;
+  for (int i = 0; i < state->L; i++) {
+    int a2 = a1 + i;
+    if (a2 >= p->len)
+      break;
+    tsta_node_t* row = tsta_graph_sort_node(p, a2);
+    int pre_num = row->in > 0 ? row->in : 1;
+    if (pre_num > max_in)
+      max_in = pre_num;
+  }
+
+  msa_thread_workspace* ws = msa_workspace_acquire(max_in, state->L, state->B);
+  msa_thread_workspace local_ws;
+  int use_local = 0;
+  if (!ws) {
+    memset(&local_ws, 0, sizeof(local_ws));
+    if (msa_workspace_resize(&local_ws, max_in, state->L, state->B) != 0)
+      return;
+    ws = &local_ws;
+    use_local = 1;
+  }
+
   for (int i = 0; i < state->L; i++) {
     int a2 = a1 + i;
     if (a2 >= p->len)
       break;
     block_line_alignment(p, block_i, block_j, block_l,
-                         tsta_graph_sort_node(p, a2), seq, nv, pc2, state);
+                         tsta_graph_sort_node(p, a2), seq, nv, pc2, state, ws);
   }
+
+  if (use_local)
+    msa_workspace_reset(&local_ws);
 }
 
 /* ── Alignment step ────────────────────────────────────────────────── */
@@ -1028,9 +1011,9 @@ tsta_msa_run_alignment_step(tsta_msa_aligner* aligner,
     state->length2 = graph->len + (state->L - graph->len % state->L);
   tsl = (unsigned int)((state->length1 + state->length2) / state->L - 1);
 
-  /* Allocate flat uint8_t * trace buffers (memory only) */
-  tsta_msa_free_all_traces(graph);
-  if (tsta_msa_alloc_traces(graph, (size_t)state->length1) != 0)
+  /* Grow (or create) the trace buffers and per-node DP column sums; both
+   * are reused across steps to avoid per-step allocation churn. */
+  if (tsta_msa_ensure_all_traces(graph, (size_t)state->length1) != 0)
     return -1;
 
   if (state->length1 >= state->length2) {
@@ -1042,13 +1025,19 @@ tsta_msa_run_alignment_step(tsta_msa_aligner* aligner,
   }
   state->maxtag = state->length1 / state->L - 1;
 
-  for (int i = 0; i < graph->len; i++) {
-    tsta_node_t* node = tsta_graph_sort_node(graph, (size_t)i);
-    free(node->simple_sorce);
-    node->simple_sorce =
-        (int*)malloc((size_t)(state->maxtag + 2) * sizeof(int));
-    if (!node->simple_sorce)
-      return -1;
+  {
+    int simple_sorce_bytes = (state->maxtag + 2) * (int)sizeof(int);
+    for (int i = 0; i < graph->len; i++) {
+      tsta_node_t* node = tsta_graph_sort_node(graph, (size_t)i);
+      if (!node->simple_sorce || node->simple_sorce_cap < simple_sorce_bytes) {
+        int* new_sorce =
+            (int*)realloc(node->simple_sorce, (size_t)simple_sorce_bytes);
+        if (!new_sorce)
+          return -1;
+        node->simple_sorce = new_sorce;
+        node->simple_sorce_cap = simple_sorce_bytes;
+      }
+    }
   }
 
   for (unsigned int i = 0; i < tsl; i++) {
@@ -1118,7 +1107,6 @@ tsta_msa_aligner_begin(tsta_msa_aligner* aligner,
   tsta_msa_session_reset(aligner);
   state = &aligner->state;
   tsta_init_msa_state(state, &aligner->config, block);
-  state->z = 0;
 
   aligner->pool = tsta_threadpool_create(
       aligner->config.threads > 0 ? aligner->config.threads : 10, 100,
@@ -1183,7 +1171,6 @@ tsta_msa_aligner_add(tsta_msa_aligner* aligner,
     tsta_msa_session_reset(aligner);
     return -1;
   }
-  tsta_msa_release_alignment_work_buffers(aligner->graph);
   aligner->graph = tsta_graph_sort(aligner->graph, 0);
   if (!aligner->graph) {
     tsta_msa_session_reset(aligner);

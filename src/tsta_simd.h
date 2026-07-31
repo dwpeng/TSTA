@@ -45,6 +45,9 @@ typedef __m512i __mxxxi;
 #define mm_setzero _mm512_setzero_si512
 #define mm_blendv_epi8(a, b, c) _mm512_mask_mov_epi8(a, c, b)
 #define mm_and_epi8 _kand_mask64
+#define mm_and_si _mm512_and_si512
+#define mm_or_epi8 _mm512_or_si512
+#define mm_shuffle_epi8 _mm512_shuffle_epi8
 
 #define mm_shuffle_epi32 _mm512_shuffle_epi32
 #define mm_permute4x64_epi64 _mm512_shuffle_epi32
@@ -96,6 +99,9 @@ typedef __m256i __mxxxi;
 #define mm_setzero _mm256_setzero_si256
 #define mm_blendv_epi8(a, b, c) _mm256_blendv_epi8(a, b, c)
 #define mm_and_epi8 _mm256_and_si256
+#define mm_and_si _mm256_and_si256
+#define mm_or_epi8 _mm256_or_si256
+#define mm_shuffle_epi8 _mm256_shuffle_epi8
 
 #define mm_shuffle_epi32 _mm256_shuffle_epi32
 #define mm_permute4x64_epi64 _mm256_permute4x64_epi64
@@ -149,6 +155,9 @@ typedef __m128i __mxxxi;
 #define mm_setzero _mm_setzero_si128
 #define mm_blendv_epi8(a, b, c) _mm_blendv_epi8(a, b, c)
 #define mm_and_epi8 _mm_and_si128
+#define mm_and_si _mm_and_si128
+#define mm_or_epi8 _mm_or_si128
+#define mm_shuffle_epi8 _mm_shuffle_epi8
 
 #define mm_shuffle_epi32 _mm_shuffle_epi32
 #define mm_permute4x64_epi64 _mm_shuffle_epi32
@@ -168,5 +177,31 @@ typedef __m128i __mxxxi;
                  _mm_hadd_epi16(_mm_hadd_epi16(a, a), _mm_hadd_epi16(a, a)))
 #define mm_reduce_epi8(a) _mm_extract_epi16(a, 0)
 #endif
+
+/* ── Horizontal 32-bit max-reduce (shared by AVX2 / SSE) ─────────────── */
+
+static inline int
+mm128_max_reduce(__mxxxi a)
+{
+  __mxxxi b, c;
+  b = mm_shuffle_epi32(a, _MM_SHUFFLE(3, 3, 1, 1));
+  b = mm_max_epi32(a, b);
+  c = mm_shuffle_epi32(b, _MM_SHUFFLE(2, 2, 2, 2));
+  c = mm_max_epi32(b, c);
+  return mm_cvtsixxx_si32(c);
+}
+
+static inline int
+mm256_max_reduce(__mxxxi e)
+{
+  __mxxxi f, g, h;
+  f = mm_shuffle_epi32(e, _MM_SHUFFLE(3, 3, 1, 1));
+  f = mm_max_epi32(e, f);
+  g = mm_shuffle_epi32(f, _MM_SHUFFLE(2, 2, 2, 2));
+  g = mm_max_epi32(f, g);
+  h = mm_permute4x64_epi64(g, _MM_SHUFFLE(2, 2, 2, 2));
+  h = mm_max_epi32(g, h);
+  return mm_cvtsixxx_si32(h);
+}
 
 #endif

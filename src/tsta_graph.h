@@ -24,6 +24,7 @@ typedef struct tsta_node_t {
   unsigned char* passing_seq;
   tsta_node_index_t* mismatch_node;
   int* simple_sorce;
+  int simple_sorce_cap; /* allocated bytes of simple_sorce (grow-only) */
   char* f0;
   int* edge_weight;
   int mismatch_num;

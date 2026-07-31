@@ -3,6 +3,8 @@
 *.fasta
 *.o
 *.so
+*.so.*
 *.a
 test_*
+!test/test_psa_simd.c
 example_*
