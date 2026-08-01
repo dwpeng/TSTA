@@ -114,19 +114,19 @@ malloc/calloc/realloc bytes).
 |---|---|---|---|
 | 1000 × 100 bp, one-shot | 0.26 s | 132k | 29 MB |
 | 500 × 500 bp, one-shot | 0.22 s | 266k | 159 MB |
-| 200 × 1000 bp, one-shot | 0.17 s | 206k | 228 MB |
+| 200 × 1000 bp, one-shot | 0.16 s | 206k | 228 MB |
 | 1000 × 100 bp, aligner reuse | 0.08 s | 5k | 2 MB |
 | 500 × 500 bp, aligner reuse | 0.11 s | 3k | 4 MB |
-| 200 × 1000 bp, aligner reuse | 0.10 s | 2k | 4 MB |
-| 10000 × 10000 bp, single | 0.08 s | 10k | 102 MB |
+| 200 × 1000 bp, aligner reuse | 0.11 s | 2k | 4 MB |
+| 10000 × 10000 bp, single | 0.07 s | 10k | 102 MB |
 
 ### Multiple sequence alignment
 
 | Workload | Time | Allocations |
 |---|---|---|
-| 10 × 500 bp | 0.02 s | 31k |
-| 20 × 1000 bp | 0.50 s | 464k |
-| 8 × 3000 bp | 0.38 s | 399k |
+| 10 × 500 bp | 0.03 s | 31k |
+| 20 × 1000 bp | 0.51 s | 464k |
+| 8 × 3000 bp | 0.35 s | 399k |
 
 ## Build integration
 
