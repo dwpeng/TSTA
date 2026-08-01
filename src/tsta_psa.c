@@ -217,15 +217,10 @@ tsta_psa_align(const char* sequence1,
                tsta_psa_result_t* result)
 {
   tsta_config effective_config;
-  size_t longest_sequence_length;
   tsta_psa_aligner* aligner;
 
   effective_config = config ? *config : tsta_config_make_default();
-  longest_sequence_length =
-      (size_t)(sequence1_length > sequence2_length ? sequence1_length
-                                                   : sequence2_length);
-  tsta_config_apply_length_fallback(&effective_config, longest_sequence_length,
-                                    2);
+  tsta_psa_adjust_config(&effective_config);
 
   aligner = tsta_psa_aligner_create(&effective_config);
   if (!aligner)

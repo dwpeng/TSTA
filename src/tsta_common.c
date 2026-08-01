@@ -97,7 +97,7 @@ tsta_config_default(tsta_config* config)
   config->mismatch = -5;
   config->gap_extend = -2;
   config->gap_open = -4;
-  config->block_size = 10;
+  config->block_size = 0; /* 0 = auto (matched to sequence length) */
   config->threads = 10;
 }
 

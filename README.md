@@ -47,8 +47,11 @@ if (tsta_psa_align(s1, (int)strlen(s1), s2, (int)strlen(s2), &cfg, &r) == 0) {
 tsta_psa_result_free(&r);
 ```
 
-`block_size` / `threads` are auto-clamped per sequence length. Traceback
-(aligned sequences + CIGAR) is always produced.
+`block_size` defaults to 0 (auto: matched to the sequence length, keeping
+padding minimal); `threads` defaults to 10. For best throughput on repeated
+alignments, reuse an aligner (the one-shot path creates its threadpool per
+call and so uses 2 threads). Traceback (aligned sequences + CIGAR) is always
+produced.
 
 ## Multiple sequence alignment
 
@@ -109,21 +112,21 @@ malloc/calloc/realloc bytes).
 
 | Workload | Time | Allocations | Allocated |
 |---|---|---|---|
-| 1000 × 100 bp, one-shot | 0.30 s | 132k | 29 MB |
+| 1000 × 100 bp, one-shot | 0.26 s | 132k | 29 MB |
 | 500 × 500 bp, one-shot | 0.22 s | 266k | 159 MB |
-| 200 × 1000 bp, one-shot | 0.26 s | 209k | 283 MB |
-| 1000 × 100 bp, aligner reuse | 0.10 s | 5k | 2 MB |
+| 200 × 1000 bp, one-shot | 0.17 s | 206k | 228 MB |
+| 1000 × 100 bp, aligner reuse | 0.08 s | 5k | 2 MB |
 | 500 × 500 bp, aligner reuse | 0.11 s | 3k | 4 MB |
-| 200 × 1000 bp, aligner reuse | 0.17 s | 2k | 7 MB |
-| 10000 × 10000 bp, single | 0.09 s | 10k | 104 MB |
+| 200 × 1000 bp, aligner reuse | 0.10 s | 2k | 4 MB |
+| 10000 × 10000 bp, single | 0.08 s | 10k | 102 MB |
 
 ### Multiple sequence alignment
 
 | Workload | Time | Allocations |
 |---|---|---|
 | 10 × 500 bp | 0.02 s | 31k |
-| 20 × 1000 bp | 0.48 s | 464k |
-| 8 × 3000 bp | 0.36 s | 399k |
+| 20 × 1000 bp | 0.50 s | 464k |
+| 8 × 3000 bp | 0.38 s | 399k |
 
 ## Build integration
 

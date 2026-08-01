@@ -986,12 +986,30 @@ tsta_psa_align_setup(tsta_psa_state* state,
                      tsta_psa_runtime_buffers* buffers)
 {
   tsta_sequence_view_t left, right;
+  tsta_config effective;
+  size_t longest;
 
   if (tsta_sequence_view_make(&left, sequence1, sequence1_length) != 0
       || tsta_sequence_view_make(&right, sequence2, sequence2_length) != 0)
     return -1;
 
-  tsta_init_psa_state(state, config, block);
+  /* Pick the lane length to match the longer sequence: L >= max(len1, len2)
+   * rounded up to a SIMD width. This keeps padding minimal for the longer
+   * sequence while a large L keeps the SIMD batch efficient (measured:
+   * large L beats small L even with more padding). block_size acts as a
+   * minimum; the sequence length only raises it. */
+  effective = config ? *config : tsta_config_make_default();
+  longest = (size_t)(left.length > right.length ? left.length : right.length);
+  if (effective.block_size <= 0)
+    effective.block_size = 1; /* auto: let the sequence length decide */
+  {
+    size_t safe = (longest + (size_t)block - 1) / (size_t)block;
+    if (safe == 0)
+      safe = 1;
+    if ((size_t)effective.block_size < safe)
+      effective.block_size = (int)safe;
+  }
+  tsta_init_psa_state(state, &effective, block);
 
   if (tsta_psa_prepare_sequences(left.sequence, (size_t)left.length,
                                  right.sequence, (size_t)right.length, cache,
@@ -1014,6 +1032,22 @@ tsta_psa_align_setup(tsta_psa_state* state,
 fail:
   tsta_psa_runtime_buffers_release(buffers, state, 0);
   return -1;
+}
+
+/* One-shot helper: the one-shot path creates its threadpool once per call,
+ * so a small thread count wins (spawn/join overhead exceeds the DP speedup —
+ * measured: 2 threads fastest across 500..10000 bp). block_size is left to
+ * tsta_psa_align_setup, which auto-matches it to the sequence length. Use a
+ * reusable aligner to exploit more cores. */
+static inline void
+tsta_psa_adjust_config(tsta_config* config)
+{
+  if (config->threads <= 0)
+    config->threads = 10;
+  if (config->threads > 2)
+    config->threads = 2;
+  if (config->threads < 1)
+    config->threads = 1;
 }
 
 static inline int

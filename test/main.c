@@ -911,7 +911,7 @@ test_config_lifecycle(void)
   assert(c1.mismatch == -5);
   assert(c1.gap_extend == -2);
   assert(c1.gap_open == -4);
-  assert(c1.block_size == 10);
+  assert(c1.block_size == 0); /* 0 = auto (matched to sequence length) */
   assert(c1.threads == 10);
 
   tsta_config c2 = tsta_config_make_default();
