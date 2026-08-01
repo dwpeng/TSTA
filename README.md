@@ -102,15 +102,28 @@ tsta_psa_result_free(&r);
 
 ## Performance
 
-Measured on this machine (AVX-512, 8 cores):
+Measured on AVX-512, 8 cores (median of 3 runs; "allocated" = cumulative
+malloc/calloc/realloc bytes).
 
-| Workload | Value |
-|---|---|
-| MSA, 20 × 1000 bp | 0.47 s, ~460k allocations |
-| MSA, 8 × 3000 bp | 0.33 s, ~400k allocations |
-| PSA one-shot, 1000 × 100 bp | 0.32 s |
-| PSA aligner-reuse, 1000 × 100 bp | 0.10 s |
-| PSA traceback matrix, 10000 × 10000 bp | ~100 MB |
+### Pairwise alignment
+
+| Workload | Time | Allocations | Allocated |
+|---|---|---|---|
+| 1000 × 100 bp, one-shot | 0.30 s | 132k | 29 MB |
+| 500 × 500 bp, one-shot | 0.22 s | 266k | 159 MB |
+| 200 × 1000 bp, one-shot | 0.26 s | 209k | 283 MB |
+| 1000 × 100 bp, aligner reuse | 0.10 s | 5k | 2 MB |
+| 500 × 500 bp, aligner reuse | 0.11 s | 3k | 4 MB |
+| 200 × 1000 bp, aligner reuse | 0.17 s | 2k | 7 MB |
+| 10000 × 10000 bp, single | 0.09 s | 10k | 104 MB |
+
+### Multiple sequence alignment
+
+| Workload | Time | Allocations |
+|---|---|---|
+| 10 × 500 bp | 0.02 s | 31k |
+| 20 × 1000 bp | 0.48 s | 464k |
+| 8 × 3000 bp | 0.36 s | 399k |
 
 ## Build integration
 
