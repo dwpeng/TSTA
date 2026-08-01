@@ -102,14 +102,15 @@ tsta_psa_result_free(&r);
 
 ## Performance
 
-Measured on the benchmark suite (n=20 sequences × 1000 bp MSA):
+Measured on this machine (AVX-512, 8 cores):
 
-| Metric | Result |
+| Workload | Value |
 |---|---|
-| Allocations per MSA | ~87% fewer |
-| MSA wall time | ~50% less |
-| Traceback matrix memory | 1/3 |
-| PSA aligner reuse | no per-align re-allocation |
+| MSA, 20 × 1000 bp | 0.47 s, ~460k allocations |
+| MSA, 8 × 3000 bp | 0.33 s, ~400k allocations |
+| PSA one-shot, 1000 × 100 bp | 0.32 s |
+| PSA aligner-reuse, 1000 × 100 bp | 0.10 s |
+| PSA traceback matrix, 10000 × 10000 bp | ~100 MB |
 
 ## Build integration
 
