@@ -426,7 +426,7 @@ tsta_psa_row(int* maxsorce,
   state->F[pc2] = mm_extract_epi8(f);
   state->V[pc2] = mm_extract_epi8(v);
   maxsorce[y] = mm_reduce_max_epi32(b2);
-  if (state->trace_enabled && state->trace.matrices.back) {
+  if (state->trace.matrices.back) {
     /* Pack back (bits 0-1, values 0/1/2), eback (bits 2-4, value+2) and
      * fback (bits 5-7, value+2) into one byte per cell. The traceback
      * matrix is one third of the size of three separate matrices. */
@@ -983,8 +983,7 @@ tsta_psa_align_setup(tsta_psa_state* state,
                      int sequence2_length,
                      packed_sequence_array_t* cache,
                      char** slots,
-                     tsta_psa_runtime_buffers* buffers,
-                     tsta_psa_result_t* result)
+                     tsta_psa_runtime_buffers* buffers)
 {
   tsta_sequence_view_t left, right;
 
@@ -993,8 +992,6 @@ tsta_psa_align_setup(tsta_psa_state* state,
     return -1;
 
   tsta_init_psa_state(state, config, block);
-  if (result)
-    state->trace_enabled = 1;
 
   if (tsta_psa_prepare_sequences(left.sequence, (size_t)left.length,
                                  right.sequence, (size_t)right.length, cache,
@@ -1009,8 +1006,8 @@ tsta_psa_align_setup(tsta_psa_state* state,
                                       (size_t)state->length[3])
       != 0)
     goto fail;
-  if (state->trace_enabled
-      && tsta_psa_trace_context_ensure(buffers, state) != 0)
+  /* Traceback is always produced, so the trace matrix is always ensured. */
+  if (tsta_psa_trace_context_ensure(buffers, state) != 0)
     goto fail;
   return 0;
 
@@ -1024,10 +1021,7 @@ tsta_psa_align_finish(tsta_psa_runtime_buffers* buffers,
                       tsta_psa_state* state,
                       tsta_psa_result_t* result)
 {
-  int status =
-      (state->trace_enabled && tsta_psa_capture_result(result, state) == 0)
-          ? 0
-          : -1;
+  int status = tsta_psa_capture_result(result, state) == 0 ? 0 : -1;
   tsta_psa_runtime_buffers_release(buffers, state, 0);
   return status;
 }

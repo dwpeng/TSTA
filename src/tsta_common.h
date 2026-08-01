@@ -120,7 +120,6 @@ typedef struct tsta_psa_state {
   int lmaxtag;
   int fmaxtag;
   int length[4];
-  int trace_enabled;
 } tsta_psa_state;
 
 /* ── MSA internal state ─────────────────────────────────────────────── */

@@ -19,6 +19,8 @@ extern "C" {
 
 /* ── Configuration ─────────────────────────────────────────────────── */
 
+/* Traceback is always produced (tsta_psa_result_t / tsta_msa_result_t always
+ * include the aligned sequences), so there is no trace_enabled switch. */
 typedef struct tsta_config {
   int match;
   int mismatch;
@@ -26,7 +28,6 @@ typedef struct tsta_config {
   int gap_open;
   int block_size;
   int threads;
-  int trace_enabled;
 } tsta_config;
 
 /* ── PSA result ────────────────────────────────────────────────────── */

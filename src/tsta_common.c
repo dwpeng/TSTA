@@ -99,7 +99,6 @@ tsta_config_default(tsta_config* config)
   config->gap_open = -4;
   config->block_size = 10;
   config->threads = 10;
-  config->trace_enabled = 0;
 }
 
 tsta_config
@@ -188,8 +187,7 @@ tsta_apply_base_config(const tsta_config* config,
                        int* gap_extend,
                        int* gap_open,
                        int* block_size,
-                       int* threads,
-                       int* trace_enabled)
+                       int* threads)
 {
   tsta_config effective;
 
@@ -204,8 +202,6 @@ tsta_apply_base_config(const tsta_config* config,
   *gap_open = effective.gap_open;
   *block_size = effective.block_size > 0 ? effective.block_size : 10;
   *threads = effective.threads > 0 ? effective.threads : 10;
-  if (trace_enabled)
-    *trace_enabled = effective.trace_enabled ? 1 : 0;
 }
 
 void
@@ -214,14 +210,12 @@ tsta_init_psa_state(tsta_psa_state* state,
                     int simd_block)
 {
   int threads = 0;
-  int trace_enabled = 0;
 
   tsta_apply_base_config(config, &state->M, &state->X, &state->E, &state->O,
-                         &state->bS, &threads, &trace_enabled);
+                         &state->bS, &threads);
   state->L = state->bS * simd_block;
   state->B = simd_block;
   state->W = (state->L + state->B - 1) / state->B;
-  state->trace_enabled = trace_enabled;
   (void)threads;
 }
 
@@ -233,7 +227,7 @@ tsta_init_msa_state(tsta_msa_state* state,
   int threads = 0;
 
   tsta_apply_base_config(config, &state->M, &state->X, &state->E, &state->O,
-                         &state->bS, &threads, NULL);
+                         &state->bS, &threads);
   state->L = state->bS * simd_block;
   state->B = simd_block;
   state->W = (state->L + state->B - 1) / state->B;

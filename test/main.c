@@ -913,7 +913,6 @@ test_config_lifecycle(void)
   assert(c1.gap_open == -4);
   assert(c1.block_size == 10);
   assert(c1.threads == 10);
-  assert(c1.trace_enabled == 0);
 
   tsta_config c2 = tsta_config_make_default();
   assert(c2.match == 2);

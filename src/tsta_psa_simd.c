@@ -76,10 +76,10 @@ tsta_psa_simd_aligner_align_internal(tsta_psa_simd_aligner* aligner,
   if (!aligner)
     return -1;
   state = &aligner->state;
-  if (tsta_psa_align_setup(
-          state, &aligner->config, sequence1, sequence1_length, sequence2,
-          sequence2_length, &aligner->packed_sequences,
-          aligner->packed_sequence_slots, &aligner->buffers, result)
+  if (tsta_psa_align_setup(state, &aligner->config, sequence1,
+                           sequence1_length, sequence2, sequence2_length,
+                           &aligner->packed_sequences,
+                           aligner->packed_sequence_slots, &aligner->buffers)
       != 0)
     return -1;
 
