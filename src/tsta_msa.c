@@ -325,43 +325,53 @@ pack_sequence_for_simd(tsta_msa_aligner* aligner,
 /* Grow (or create) the three trace stores so they are reused across
  * alignment steps instead of being destroyed and recreated per step. */
 static int
-tsta_msa_ensure_node_traces(tsta_node_t* node, size_t trace_length)
+tsta_msa_ensure_node_traces(tsta_node_t* node,
+                            size_t trace_length,
+                            size_t chunk_size)
 {
   if (!node)
     return -1;
   if (!node->source_store) {
-    node->source_store = tsta_trace_block_store_create(trace_length, 4096);
+    node->source_store =
+        tsta_trace_block_store_create(trace_length, chunk_size);
     if (!node->source_store)
       return -1;
   } else {
-    tsta_trace_block_store_ensure(node->source_store, trace_length, 4096);
+    tsta_trace_block_store_ensure(node->source_store, trace_length,
+                                  chunk_size);
   }
   if (!node->esource_store) {
-    node->esource_store = tsta_trace_block_store_create(trace_length, 4096);
+    node->esource_store =
+        tsta_trace_block_store_create(trace_length, chunk_size);
     if (!node->esource_store)
       return -1;
   } else {
-    tsta_trace_block_store_ensure(node->esource_store, trace_length, 4096);
+    tsta_trace_block_store_ensure(node->esource_store, trace_length,
+                                  chunk_size);
   }
   if (!node->fsource_store) {
-    node->fsource_store = tsta_trace_block_store_create(trace_length, 4096);
+    node->fsource_store =
+        tsta_trace_block_store_create(trace_length, chunk_size);
     if (!node->fsource_store)
       return -1;
   } else {
-    tsta_trace_block_store_ensure(node->fsource_store, trace_length, 4096);
+    tsta_trace_block_store_ensure(node->fsource_store, trace_length,
+                                  chunk_size);
   }
   return 0;
 }
 
 static int
-tsta_msa_ensure_all_traces(tsta_graph_t* graph, size_t trace_length)
+tsta_msa_ensure_all_traces(tsta_graph_t* graph,
+                           size_t trace_length,
+                           size_t chunk_size)
 {
   if (!graph || !graph->sort.data || trace_length == 0)
     return -1;
 
   for (int i = 0; i < graph->len; i++) {
     if (tsta_msa_ensure_node_traces(tsta_graph_sort_node(graph, i),
-                                    trace_length)
+                                    trace_length, chunk_size)
         != 0)
       return -1;
   }
@@ -1013,7 +1023,11 @@ tsta_msa_run_alignment_step(tsta_msa_aligner* aligner,
 
   /* Grow (or create) the trace buffers and per-node DP column sums; both
    * are reused across steps to avoid per-step allocation churn. */
-  if (tsta_msa_ensure_all_traces(graph, (size_t)state->length1) != 0)
+  /* chunk_size = length1 (the trace width): the store buffer is exactly the
+   * lane-aligned sequence length, avoiding 4096-byte per-store padding. */
+  if (tsta_msa_ensure_all_traces(graph, (size_t)state->length1,
+                                 (size_t)state->length1)
+      != 0)
     return -1;
 
   if (state->length1 >= state->length2) {

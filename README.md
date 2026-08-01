@@ -113,24 +113,25 @@ memory footprint).
 
 | Workload | Time | Allocations | Peak RSS |
 |---|---|---|---|
-| 1000 × 100 bp, one-shot | 0.27 s | 132k | 2 MB |
-| 500 × 500 bp, one-shot | 0.22 s | 266k | 2 MB |
-| 200 × 1000 bp, one-shot | 0.19 s | 206k | 2 MB |
+| 1000 × 100 bp, one-shot | 0.29 s | 132k | 2 MB |
+| 500 × 500 bp, one-shot | 0.23 s | 266k | 2 MB |
+| 200 × 1000 bp, one-shot | 0.17 s | 206k | 3 MB |
 | 1000 × 100 bp, aligner reuse | 0.08 s | 5k | 2 MB |
-| 500 × 500 bp, aligner reuse | 0.15 s | 3k | 2 MB |
-| 200 × 1000 bp, aligner reuse | 0.12 s | 2k | 3 MB |
+| 500 × 500 bp, aligner reuse | 0.12 s | 3k | 2 MB |
+| 200 × 1000 bp, aligner reuse | 0.10 s | 2k | 3 MB |
 | 10000 × 10000 bp, single | 0.07 s | 10k | 101 MB |
 
 ### Multiple sequence alignment
 
 | Workload | Time | Allocations | Peak RSS |
 |---|---|---|---|
-| 10 × 500 bp | 0.02 s | 31k | 16 MB |
-| 20 × 1000 bp | 0.52 s | 464k | 274 MB |
-| 8 × 3000 bp | 0.36 s | 399k | 305 MB |
+| 10 × 500 bp | 0.01 s | 31k | 6 MB |
+| 20 × 1000 bp | 0.37 s | 464k | 117 MB |
+| 8 × 3000 bp | 0.32 s | 399k | 250 MB |
 
-The large MSA footprint is the POA graph (nodes and per-node trace stores),
-not sequence padding; PSA uses rolling buffers, so its footprint stays small
+The MSA footprint is dominated by the POA graph: per-node trace stores
+(now sized to the sequence length instead of 4096-byte chunks) plus node
+DP buffers. PSA uses rolling buffers, so its footprint stays small
 regardless of sequence length. The 10000 bp single-align footprint is the
 packed traceback matrix.
 
