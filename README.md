@@ -105,28 +105,34 @@ tsta_psa_result_free(&r);
 
 ## Performance
 
-Measured on AVX-512, 8 cores (median of 3 runs; "allocated" = cumulative
-malloc/calloc/realloc bytes).
+Measured on AVX-512, 8 cores (median of 3 runs). "Allocations" = total
+malloc/calloc/realloc calls; "Peak RSS" = peak resident set size (the real
+memory footprint).
 
 ### Pairwise alignment
 
-| Workload | Time | Allocations | Allocated |
+| Workload | Time | Allocations | Peak RSS |
 |---|---|---|---|
-| 1000 × 100 bp, one-shot | 0.26 s | 132k | 29 MB |
-| 500 × 500 bp, one-shot | 0.22 s | 266k | 159 MB |
-| 200 × 1000 bp, one-shot | 0.16 s | 206k | 228 MB |
+| 1000 × 100 bp, one-shot | 0.27 s | 132k | 2 MB |
+| 500 × 500 bp, one-shot | 0.22 s | 266k | 2 MB |
+| 200 × 1000 bp, one-shot | 0.19 s | 206k | 2 MB |
 | 1000 × 100 bp, aligner reuse | 0.08 s | 5k | 2 MB |
-| 500 × 500 bp, aligner reuse | 0.11 s | 3k | 4 MB |
-| 200 × 1000 bp, aligner reuse | 0.11 s | 2k | 4 MB |
-| 10000 × 10000 bp, single | 0.07 s | 10k | 102 MB |
+| 500 × 500 bp, aligner reuse | 0.15 s | 3k | 2 MB |
+| 200 × 1000 bp, aligner reuse | 0.12 s | 2k | 3 MB |
+| 10000 × 10000 bp, single | 0.07 s | 10k | 101 MB |
 
 ### Multiple sequence alignment
 
-| Workload | Time | Allocations |
-|---|---|---|
-| 10 × 500 bp | 0.03 s | 31k |
-| 20 × 1000 bp | 0.51 s | 464k |
-| 8 × 3000 bp | 0.35 s | 399k |
+| Workload | Time | Allocations | Peak RSS |
+|---|---|---|---|
+| 10 × 500 bp | 0.02 s | 31k | 16 MB |
+| 20 × 1000 bp | 0.52 s | 464k | 274 MB |
+| 8 × 3000 bp | 0.36 s | 399k | 305 MB |
+
+The large MSA footprint is the POA graph (nodes and per-node trace stores),
+not sequence padding; PSA uses rolling buffers, so its footprint stays small
+regardless of sequence length. The 10000 bp single-align footprint is the
+packed traceback matrix.
 
 ## Build integration
 
