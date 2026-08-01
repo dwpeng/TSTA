@@ -6,6 +6,18 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__x86_64__) || defined(__i386__)
+#include <immintrin.h>
+#define TSTA_TP_PAUSE() _mm_pause()
+#else
+#define TSTA_TP_PAUSE() ((void)0)
+#endif
+
+/* Spin iterations before a worker / waiter falls back to a condvar wait.
+ * Bounded busy-wait avoids the futex syscall on the short, bursty task
+ * pattern TSTA uses (submit a few blocks, barrier-wait, repeat). */
+#define TSTA_TP_SPIN 1000
+
 typedef struct tsta_threadpool_task {
   void (*function)(void* arg);
   unsigned char* payload;
@@ -17,23 +29,30 @@ typedef struct tsta_threadpool_worker_context {
 } tsta_threadpool_worker_context_t;
 
 struct tsta_threadpool {
+  /* Shared state, protected by mutex_pool. */
+  _Alignas(64) pthread_mutex_t mutex_pool;
+  pthread_cond_t not_empty;
+  pthread_cond_t finished;
   tsta_threadpool_task_t* task_queue;
   unsigned char* task_storage;
-  unsigned char* worker_storage;
-  tsta_threadpool_worker_context_t* worker_contexts;
   size_t task_size;
   size_t task_stride;
   int queue_capacity;
   int queue_size;
   int queue_front;
   int queue_rear;
-  int thread_count;
-  int busy_count;
-  pthread_t* threads;
-  pthread_mutex_t mutex_pool;
-  pthread_cond_t not_empty;
-  pthread_cond_t finished;
   int shutdown;
+  /* Hot barrier counters, atomically updated; cache-line isolated from the
+   * mutex/queue above and the read-only data below to cut false sharing.
+   *   pending: submitted, not yet finished (waited on by tsta_threadpool_wait)
+   *   queued:  submitted, not yet dequeued (spun on by workers)             */
+  _Alignas(64) int pending;
+  int queued;
+  /* Read-only after create. */
+  _Alignas(64) unsigned char* worker_storage;
+  tsta_threadpool_worker_context_t* worker_contexts;
+  pthread_t* threads;
+  int thread_count;
 };
 
 static size_t
@@ -45,19 +64,6 @@ tsta_threadpool_align_size(size_t size)
   return ((size + alignment - 1) / alignment) * alignment;
 }
 
-static int
-tsta_threadpool_enqueue(tsta_threadpool_t* pool,
-                        void (*function)(void*),
-                        const void* arg)
-{
-  tsta_threadpool_task_t* slot = &pool->task_queue[pool->queue_rear];
-  memcpy(slot->payload, arg, pool->task_size);
-  slot->function = function;
-  pool->queue_rear = (pool->queue_rear + 1) % pool->queue_capacity;
-  pool->queue_size++;
-  return 0;
-}
-
 static void*
 tsta_threadpool_worker(void* arg)
 {
@@ -67,11 +73,23 @@ tsta_threadpool_worker(void* arg)
   void* task_buffer = context->task_buffer;
 
   for (;;) {
+    /* Phase 1: bounded busy-wait for a queued task (no syscall). */
+    int spins = 0;
+    while (spins < TSTA_TP_SPIN
+           && __atomic_load_n(&pool->queued, __ATOMIC_ACQUIRE) == 0
+           && !__atomic_load_n(&pool->shutdown, __ATOMIC_ACQUIRE)) {
+      TSTA_TP_PAUSE();
+      spins++;
+    }
+
+    /* Phase 2: blocking acquire. */
     pthread_mutex_lock(&pool->mutex_pool);
-    while (pool->queue_size == 0 && !pool->shutdown)
+    while (pool->queue_size == 0
+           && !__atomic_load_n(&pool->shutdown, __ATOMIC_ACQUIRE))
       pthread_cond_wait(&pool->not_empty, &pool->mutex_pool);
 
-    if (pool->shutdown && pool->queue_size == 0) {
+    if (__atomic_load_n(&pool->shutdown, __ATOMIC_ACQUIRE)
+        && pool->queue_size == 0) {
       pthread_mutex_unlock(&pool->mutex_pool);
       break;
     }
@@ -79,17 +97,21 @@ tsta_threadpool_worker(void* arg)
     tsta_threadpool_task_t task = pool->task_queue[pool->queue_front];
     pool->queue_front = (pool->queue_front + 1) % pool->queue_capacity;
     pool->queue_size--;
-    pool->busy_count++;
-    pthread_mutex_unlock(&pool->mutex_pool);
-
+    /* Copy into the worker's private buffer while holding the lock: the ring
+     * slot becomes free immediately and the producer may overwrite it. */
     memcpy(task_buffer, task.payload, pool->task_size);
+    pthread_mutex_unlock(&pool->mutex_pool);
+    __atomic_sub_fetch(&pool->queued, 1, __ATOMIC_ACQ_REL);
+
+    /* Execute outside the lock; each worker has its own task buffer. */
     task.function(task_buffer);
 
-    pthread_mutex_lock(&pool->mutex_pool);
-    pool->busy_count--;
-    if (pool->queue_size == 0 && pool->busy_count == 0)
-      pthread_cond_broadcast(&pool->finished);
-    pthread_mutex_unlock(&pool->mutex_pool);
+    /* Completion: the last in-flight task signals the waiter. */
+    if (__atomic_sub_fetch(&pool->pending, 1, __ATOMIC_ACQ_REL) == 0) {
+      pthread_mutex_lock(&pool->mutex_pool);
+      pthread_cond_signal(&pool->finished);
+      pthread_mutex_unlock(&pool->mutex_pool);
+    }
   }
   return NULL;
 }
@@ -156,7 +178,7 @@ tsta_threadpool_create(int thread_count, int queue_capacity, size_t task_size)
                        &pool->worker_contexts[i])
         != 0) {
       pthread_mutex_lock(&pool->mutex_pool);
-      pool->shutdown = 1;
+      __atomic_store_n(&pool->shutdown, 1, __ATOMIC_RELEASE);
       pthread_cond_broadcast(&pool->not_empty);
       pthread_mutex_unlock(&pool->mutex_pool);
       for (int j = 0; j < i; ++j)
@@ -189,9 +211,9 @@ tsta_threadpool_destroy(tsta_threadpool_t* pool)
     return -1;
 
   pthread_mutex_lock(&pool->mutex_pool);
-  while (pool->queue_size > 0 || pool->busy_count > 0)
+  while (__atomic_load_n(&pool->pending, __ATOMIC_ACQUIRE) > 0)
     pthread_cond_wait(&pool->finished, &pool->mutex_pool);
-  pool->shutdown = 1;
+  __atomic_store_n(&pool->shutdown, 1, __ATOMIC_RELEASE);
   pthread_cond_broadcast(&pool->not_empty);
   pthread_mutex_unlock(&pool->mutex_pool);
 
@@ -220,7 +242,7 @@ tsta_threadpool_submit(tsta_threadpool_t* pool,
     return -1;
 
   pthread_mutex_lock(&pool->mutex_pool);
-  if (pool->shutdown) {
+  if (__atomic_load_n(&pool->shutdown, __ATOMIC_ACQUIRE)) {
     pthread_mutex_unlock(&pool->mutex_pool);
     return -1;
   }
@@ -229,8 +251,17 @@ tsta_threadpool_submit(tsta_threadpool_t* pool,
     return 1;
   }
 
-  tsta_threadpool_enqueue(pool, function, arg);
-  pthread_cond_signal(&pool->not_empty);
+  tsta_threadpool_task_t* slot = &pool->task_queue[pool->queue_rear];
+  memcpy(slot->payload, arg, pool->task_size);
+  slot->function = function;
+  pool->queue_rear = (pool->queue_rear + 1) % pool->queue_capacity;
+  pool->queue_size++;
+  __atomic_add_fetch(&pool->queued, 1, __ATOMIC_ACQ_REL);
+  __atomic_add_fetch(&pool->pending, 1, __ATOMIC_ACQ_REL);
+  /* Signal only on the empty->non-empty transition; busy workers will see
+   * queued via their spin loop. */
+  if (pool->queue_size == 1)
+    pthread_cond_signal(&pool->not_empty);
   pthread_mutex_unlock(&pool->mutex_pool);
   return 0;
 }
@@ -240,8 +271,20 @@ tsta_threadpool_wait(tsta_threadpool_t* pool)
 {
   if (!pool)
     return;
+
+  /* Bounded busy-wait first: the common case (short tasks) drains before
+   * the futex round-trip cost of a condvar wait. */
+  int spins = 0;
+  while (spins < TSTA_TP_SPIN
+         && __atomic_load_n(&pool->pending, __ATOMIC_ACQUIRE) > 0) {
+    TSTA_TP_PAUSE();
+    spins++;
+  }
+  if (__atomic_load_n(&pool->pending, __ATOMIC_ACQUIRE) == 0)
+    return;
+
   pthread_mutex_lock(&pool->mutex_pool);
-  while (pool->queue_size > 0 || pool->busy_count > 0)
+  while (__atomic_load_n(&pool->pending, __ATOMIC_ACQUIRE) > 0)
     pthread_cond_wait(&pool->finished, &pool->mutex_pool);
   pthread_mutex_unlock(&pool->mutex_pool);
 }
