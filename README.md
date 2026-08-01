@@ -3,13 +3,10 @@
 > **Note:** This project is derived from [bxskdh/TSTA](https://github.com/bxskdh/TSTA).
 > The core alignment algorithms remain unchanged. Modifications are limited to
 > engineering improvements: build system, public API design, C++ wrapper, test
-> coverage, and code formatting.
+> coverage, code formatting, memory management and threading.
 
-Pairwise and multiple sequence alignment library accelerated by SIMD and threads.
-
-## Introduction
-
-SIMD-accelerated global sequence alignment using striped anti-diagonal DP with difference recurrence. MSA uses Partial Order Alignment (POA) DAG. All data in memory — no disk I/O, no external dependencies beyond libc and pthreads.
+SIMD-accelerated pairwise and multiple sequence alignment library. No external
+dependencies beyond libc and pthreads; all data in memory.
 
 ## Installation
 
@@ -27,31 +24,20 @@ Install system-wide:
 sudo make install PREFIX=/usr/local
 ```
 
-## API
+Useful targets: `make check` (tests), `make check_psa_simd` (standalone vs
+threaded cross-check), `make format` / `make check-format` (clang-format),
+`make install-hooks` (pre-commit format check).
 
-Single header: `#include <tsta.h>`.
-
-### Configuration
-
-```c
-tsta_config cfg = tsta_config_make_default();
-cfg.match    = 2;     // default
-cfg.mismatch = -5;    // default
-cfg.gap_open = -4;    // default
-cfg.gap_extend = -2;  // default
-
-// block_size / threads auto-clamped per sequence length
-```
-
-### Pairwise alignment
+## Pairwise alignment
 
 ```c
 #include "tsta.h"
 #include <string.h>
 
+tsta_config cfg = tsta_config_make_default();   // match=2, mismatch=-5, gap_open=-4, gap_extend=-2
+
 const char *s1 = "ACGTAGCTAGCTAGCTAGCTA";
 const char *s2 = "AGCTAGCTAGCTAGCTAGC";
-tsta_config cfg = tsta_config_make_default();
 tsta_psa_result_t r = tsta_psa_result_make();
 
 if (tsta_psa_align(s1, (int)strlen(s1), s2, (int)strlen(s2), &cfg, &r) == 0) {
@@ -61,7 +47,12 @@ if (tsta_psa_align(s1, (int)strlen(s1), s2, (int)strlen(s2), &cfg, &r) == 0) {
 tsta_psa_result_free(&r);
 ```
 
-### Multiple sequence alignment (one-shot)
+`block_size` / `threads` are auto-clamped per sequence length. Traceback
+(aligned sequences + CIGAR) is always produced.
+
+## Multiple sequence alignment
+
+One-shot:
 
 ```c
 const char *seqs[] = {s1, s2, s3};
@@ -76,11 +67,10 @@ if (tsta_msa_align(seqs, lens, 3, &cfg, &r) == 0) {
 tsta_msa_result_free(&r);
 ```
 
-### Multiple sequence alignment (incremental)
+Incremental:
 
 ```c
 tsta_msa_aligner *a = tsta_msa_aligner_create(&cfg);
-
 tsta_msa_aligner_begin(a, s1, (int)strlen(s1));
 tsta_msa_aligner_add(a, s2, (int)strlen(s2));
 tsta_msa_aligner_add(a, s3, (int)strlen(s3));
@@ -89,25 +79,37 @@ tsta_msa_result_t r = tsta_msa_result_make();
 tsta_msa_aligner_get_result(a, &r);
 // use r.aln[], r.score, r.aln_length ...
 tsta_msa_result_free(&r);
-
 tsta_msa_aligner_destroy(a);
 ```
 
-### Aligner reuse
+Aligners are reusable — runtime buffers are cached across calls, so repeated
+alignments on the same aligner are cheap.
+
+## Standalone SIMD module
+
+Single-threaded pairwise alignment with SIMD only — no pthread. Shares the
+same core as the threaded library, results are bit-identical. Builds as
+`libtsta_psa_simd` (no `-lpthread` needed).
 
 ```c
-tsta_msa_aligner *a = tsta_msa_aligner_create(&cfg);
+#include "tsta_psa_simd.h"   // reuses tsta_config / tsta_psa_result_t
 
-// first MSA
-tsta_msa_aligner_align(a, seqs_a, lens_a, count_a, &r1);
-tsta_msa_result_free(&r1);
-
-// second MSA — same aligner, same config
-tsta_msa_aligner_align(a, seqs_b, lens_b, count_b, &r2);
-tsta_msa_result_free(&r2);
-
-tsta_msa_aligner_destroy(a);
+tsta_config cfg = tsta_config_make_default();
+tsta_psa_result_t r = tsta_psa_result_make();
+tsta_psa_simd_align(s1, (int)strlen(s1), s2, (int)strlen(s2), &cfg, &r);
+tsta_psa_result_free(&r);
 ```
+
+## Performance
+
+Measured on the benchmark suite (n=20 sequences × 1000 bp MSA):
+
+| Metric | Result |
+|---|---|
+| Allocations per MSA | ~87% fewer |
+| MSA wall time | ~50% less |
+| Traceback matrix memory | 1/3 |
+| PSA aligner reuse | no per-align re-allocation |
 
 ## Build integration
 
@@ -121,7 +123,8 @@ LDFLAGS += $(shell pkg-config --libs tsta)
 Manual link:
 
 ```bash
-cc -o myapp myapp.c -ltsta -lpthread
+cc -o myapp myapp.c -ltsta -lpthread        # threaded library
+cc -o myapp myapp.c -ltsta_psa_simd         # standalone module (no pthread)
 ```
 
 ## Contact
