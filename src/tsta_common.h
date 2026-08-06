@@ -30,54 +30,6 @@ define_array(packed_sequence_t,
              packed_sequence_array_t,
              tsta_packed_sequence_array);
 
-/* ── Simplified trace block store (memory only) ──────────────────────── */
-
-typedef struct tsta_trace_block_store {
-  uint8_t* buffer;
-  size_t length;
-  size_t chunk_size;
-  size_t chunk_count;
-} tsta_trace_block_store_t;
-
-tsta_trace_block_store_t* tsta_trace_block_store_create(size_t length,
-                                                        size_t chunk_size);
-void tsta_trace_block_store_destroy(tsta_trace_block_store_t* store);
-void tsta_trace_block_store_ensure(tsta_trace_block_store_t* store,
-                                   size_t length,
-                                   size_t chunk_size);
-
-static inline uint8_t*
-tsta_trace_block_store_chunk(tsta_trace_block_store_t* store,
-                             size_t chunk_index)
-{
-  if (!store || chunk_index >= store->chunk_count)
-    return NULL;
-  return store->buffer + chunk_index * store->chunk_size;
-}
-
-static inline char
-tsta_trace_block_store_get_byte(tsta_trace_block_store_t* store, size_t index)
-{
-  size_t ci = index / store->chunk_size;
-  size_t off = index % store->chunk_size;
-  char* chunk = (char*)tsta_trace_block_store_chunk(store, ci);
-  return chunk ? chunk[off] : 0;
-}
-
-static inline int
-tsta_trace_block_store_set_byte(tsta_trace_block_store_t* store,
-                                size_t index,
-                                char value)
-{
-  size_t ci = index / store->chunk_size;
-  size_t off = index % store->chunk_size;
-  char* chunk = (char*)tsta_trace_block_store_chunk(store, ci);
-  if (!chunk)
-    return -1;
-  chunk[off] = value;
-  return 0;
-}
-
 /* ── PSA internal state ─────────────────────────────────────────────── */
 
 /* Single packed matrix: each byte holds back (bits 0-1), eback (bits 2-4,

@@ -320,58 +320,36 @@ pack_sequence_for_simd(tsta_msa_aligner* aligner,
   return seq2;
 }
 
-/* ── Trace storage (memory only) ───────────────────────────────────── */
+/* ── Trace storage (contiguous per-node block) ─────────────────────── */
 
-/* Grow (or create) the three trace stores so they are reused across
- * alignment steps instead of being destroyed and recreated per step. */
+/* Grow (or create) the node's single contiguous trace block (three planes
+ * of `width` bytes: source, esource, fsource). Reused across steps. */
 static int
-tsta_msa_ensure_node_traces(tsta_node_t* node,
-                            size_t trace_length,
-                            size_t chunk_size)
+tsta_msa_ensure_node_traces(tsta_node_t* node, size_t width)
 {
   if (!node)
     return -1;
-  if (!node->source_store) {
-    node->source_store =
-        tsta_trace_block_store_create(trace_length, chunk_size);
-    if (!node->source_store)
+  if (!node->traces || node->trace_width < width) {
+    size_t cap = 3 * width;
+    uint8_t* new_traces = (uint8_t*)mm_malloc(cap);
+    if (!new_traces)
       return -1;
-  } else {
-    tsta_trace_block_store_ensure(node->source_store, trace_length,
-                                  chunk_size);
-  }
-  if (!node->esource_store) {
-    node->esource_store =
-        tsta_trace_block_store_create(trace_length, chunk_size);
-    if (!node->esource_store)
-      return -1;
-  } else {
-    tsta_trace_block_store_ensure(node->esource_store, trace_length,
-                                  chunk_size);
-  }
-  if (!node->fsource_store) {
-    node->fsource_store =
-        tsta_trace_block_store_create(trace_length, chunk_size);
-    if (!node->fsource_store)
-      return -1;
-  } else {
-    tsta_trace_block_store_ensure(node->fsource_store, trace_length,
-                                  chunk_size);
+    mm_free(node->traces);
+    node->traces = new_traces;
+    node->trace_width = width;
+    memset(node->traces, 0, cap);
   }
   return 0;
 }
 
 static int
-tsta_msa_ensure_all_traces(tsta_graph_t* graph,
-                           size_t trace_length,
-                           size_t chunk_size)
+tsta_msa_ensure_all_traces(tsta_graph_t* graph, size_t width)
 {
-  if (!graph || !graph->sort.data || trace_length == 0)
+  if (!graph || !graph->sort.data || width == 0)
     return -1;
 
   for (int i = 0; i < graph->len; i++) {
-    if (tsta_msa_ensure_node_traces(tsta_graph_sort_node(graph, i),
-                                    trace_length, chunk_size)
+    if (tsta_msa_ensure_node_traces(tsta_graph_sort_node(graph, i), width)
         != 0)
       return -1;
   }
@@ -517,21 +495,18 @@ block_line_alignment(tsta_graph_t* graph,
   int original_pre_num = row->in;
   int pre_num = original_pre_num > 0 ? original_pre_num : 1;
 
-  size_t trace_chunk_index = (size_t)pc2 / (size_t)state->W;
-  uint8_t* source_chunk =
-      row->source_store
-          ? tsta_trace_block_store_chunk(row->source_store, trace_chunk_index)
-          : NULL;
-  uint8_t* esource_chunk =
-      row->esource_store
-          ? tsta_trace_block_store_chunk(row->esource_store, trace_chunk_index)
-          : NULL;
-  uint8_t* fsource_chunk =
-      row->fsource_store
-          ? tsta_trace_block_store_chunk(row->fsource_store, trace_chunk_index)
-          : NULL;
-
-  if (!source_chunk || !esource_chunk || !fsource_chunk)
+  uint8_t* source_ptr = NULL;
+  uint8_t* esource_ptr = NULL;
+  uint8_t* fsource_ptr = NULL;
+  if (row->traces) {
+    /* Write offset = nv*L + i*block equals the packed index q=NUM2(num2);
+     * planes at 0, trace_width, 2*trace_width. */
+    size_t off = (size_t)nv * (size_t)state->L;
+    source_ptr = row->traces + off;
+    esource_ptr = row->traces + row->trace_width + off;
+    fsource_ptr = row->traces + 2 * row->trace_width + off;
+  }
+  if (!row->traces)
     return;
 
   /* Reusable per-thread buffers from the workspace (rows are mm_malloc'd,
@@ -841,7 +816,7 @@ block_line_alignment(tsta_graph_t* graph,
       source_num = mm_blendv_epi8(source_num, mm_set1_epi8(j), mask);
     }
     source = mm_add_epi8(source, source_num);
-    mm_store((__mxxxi*)source_chunk + i, source);
+    mm_store((__mxxxi*)source_ptr + i, source);
     mm_store((__mxxxi*)row->sorce + pc1 + i, max);
 
     /* esource + fsource */
@@ -898,8 +873,8 @@ block_line_alignment(tsta_graph_t* graph,
     }
     temp1 = mm_sub_epi8(zero, fsource);
     fsource = mm_blendv_epi8(fsource, temp1, mask1);
-    mm_store((__mxxxi*)fsource_chunk + i, fsource);
-    mm_store((__mxxxi*)esource_chunk + i, esource);
+    mm_store((__mxxxi*)fsource_ptr + i, fsource);
+    mm_store((__mxxxi*)esource_ptr + i, esource);
     mm_store((__mxxxi*)row->esorce + pc1 + i, emax);
   }
 
@@ -1025,9 +1000,8 @@ tsta_msa_run_alignment_step(tsta_msa_aligner* aligner,
    * are reused across steps to avoid per-step allocation churn. */
   /* chunk_size = length1 (the trace width): the store buffer is exactly the
    * lane-aligned sequence length, avoiding 4096-byte per-store padding. */
-  if (tsta_msa_ensure_all_traces(graph, (size_t)state->length1,
-                                 (size_t)state->length1)
-      != 0)
+  /* trace plane width = the lane-aligned sequence length */
+  if (tsta_msa_ensure_all_traces(graph, (size_t)state->length1) != 0)
     return -1;
 
   if (state->length1 >= state->length2) {

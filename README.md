@@ -103,38 +103,6 @@ tsta_psa_simd_align(s1, (int)strlen(s1), s2, (int)strlen(s2), &cfg, &r);
 tsta_psa_result_free(&r);
 ```
 
-## Performance
-
-Measured on AVX-512, 8 cores (median of 3 runs). "Allocations" = total
-malloc/calloc/realloc calls; "Peak RSS" = peak resident set size (the real
-memory footprint).
-
-### Pairwise alignment
-
-| Workload | Time | Allocations | Peak RSS |
-|---|---|---|---|
-| 1000 × 100 bp, one-shot | 0.29 s | 132k | 2 MB |
-| 500 × 500 bp, one-shot | 0.23 s | 266k | 2 MB |
-| 200 × 1000 bp, one-shot | 0.17 s | 206k | 3 MB |
-| 1000 × 100 bp, aligner reuse | 0.08 s | 5k | 2 MB |
-| 500 × 500 bp, aligner reuse | 0.12 s | 3k | 2 MB |
-| 200 × 1000 bp, aligner reuse | 0.10 s | 2k | 3 MB |
-| 10000 × 10000 bp, single | 0.07 s | 10k | 101 MB |
-
-### Multiple sequence alignment
-
-| Workload | Time | Allocations | Peak RSS |
-|---|---|---|---|
-| 10 × 500 bp | 0.01 s | 31k | 6 MB |
-| 20 × 1000 bp | 0.37 s | 464k | 117 MB |
-| 8 × 3000 bp | 0.32 s | 399k | 250 MB |
-
-The MSA footprint is dominated by the POA graph: per-node trace stores
-(now sized to the sequence length instead of 4096-byte chunks) plus node
-DP buffers. PSA uses rolling buffers, so its footprint stays small
-regardless of sequence length. The 10000 bp single-align footprint is the
-packed traceback matrix.
-
 ## Build integration
 
 pkg-config:

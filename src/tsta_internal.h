@@ -16,28 +16,41 @@
       + ((((num2) % state->L) % state->W) * state->B                          \
          + (((num2) % state->L) / state->W))
 
-/* ── Trace buffer access (direct uint8_t * indexing) ─────────────────── */
+/* ── Trace buffer access (contiguous per-node block, direct indexing) ──
+ * traces holds three planes of trace_width bytes: source, esource, fsource.
+ * NULL traces (seed / not-yet-created nodes) read as 0. */
 
 #define TRACE_SOURCE(node, index)                                             \
-  tsta_trace_block_store_get_byte((node)->source_store, (size_t)(index))
+  ((node)->traces ? (char)((node)->traces[(size_t)(index)]) : 0)
 
 #define TRACE_SOURCE_SET(node, index, value)                                  \
-  tsta_trace_block_store_set_byte((node)->source_store, (size_t)(index),      \
-                                  (char)(value))
+  do {                                                                        \
+    if ((node)->traces)                                                       \
+      (node)->traces[(size_t)(index)] = (char)(value);                        \
+  } while (0)
 
 #define TRACE_ESOURCE(node, index)                                            \
-  tsta_trace_block_store_get_byte((node)->esource_store, (size_t)(index))
+  ((node)->traces                                                             \
+       ? (char)((node)->traces[(node)->trace_width + (size_t)(index)])        \
+       : 0)
 
 #define TRACE_ESOURCE_SET(node, index, value)                                 \
-  tsta_trace_block_store_set_byte((node)->esource_store, (size_t)(index),     \
-                                  (char)(value))
+  do {                                                                        \
+    if ((node)->traces)                                                       \
+      (node)->traces[(node)->trace_width + (size_t)(index)] = (char)(value);  \
+  } while (0)
 
 #define TRACE_FSOURCE(node, index)                                            \
-  tsta_trace_block_store_get_byte((node)->fsource_store, (size_t)(index))
+  ((node)->traces                                                             \
+       ? (char)((node)->traces[2 * (node)->trace_width + (size_t)(index)])    \
+       : 0)
 
 #define TRACE_FSOURCE_SET(node, index, value)                                 \
-  tsta_trace_block_store_set_byte((node)->fsource_store, (size_t)(index),     \
-                                  (char)(value))
+  do {                                                                        \
+    if ((node)->traces)                                                       \
+      (node)->traces[2 * (node)->trace_width + (size_t)(index)] =             \
+          (char)(value);                                                      \
+  } while (0)
 
 #define TSTA_TRACE_PARENT_SLOT(trace)                                         \
   ((size_t)((trace) < 0 ? 0 : ((trace) % 42)))

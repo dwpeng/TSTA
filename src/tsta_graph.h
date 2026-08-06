@@ -18,15 +18,17 @@ typedef struct tsta_node_t {
   tsta_node_index_t* next;
   char* sorce;
   char* esorce;
-  tsta_trace_block_store_t* source_store;
-  tsta_trace_block_store_t* esource_store;
-  tsta_trace_block_store_t* fsource_store;
+  uint8_t* traces; /* 3*trace_width bytes: source, esource, fsource planes */
+  size_t trace_width; /* width of each trace plane (= lane-aligned length1) */
   unsigned char* passing_seq;
   tsta_node_index_t* mismatch_node;
   int* simple_sorce;
   int simple_sorce_cap; /* allocated bytes of simple_sorce (grow-only) */
   char* f0;
   int* edge_weight;
+  int in_cap;
+  int out_cap;
+  int mismatch_cap;
   int mismatch_num;
   int sub;
   int frist_col_sorce;

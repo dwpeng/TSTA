@@ -81,18 +81,9 @@ free_node(tsta_node_t* n)
   n->sorce = NULL;
   mm_free(n->esorce);
   n->esorce = NULL;
-  if (n->source_store) {
-    tsta_trace_block_store_destroy(n->source_store);
-    n->source_store = NULL;
-  }
-  if (n->esource_store) {
-    tsta_trace_block_store_destroy(n->esource_store);
-    n->esource_store = NULL;
-  }
-  if (n->fsource_store) {
-    tsta_trace_block_store_destroy(n->fsource_store);
-    n->fsource_store = NULL;
-  }
+  mm_free(n->traces);
+  n->traces = NULL;
+  n->trace_width = 0;
   free(n->passing_seq);
   n->passing_seq = NULL;
   free(n->mismatch_node);
@@ -479,7 +470,12 @@ toposort1(tsta_graph_t* s)
 static inline tsta_graph_t*
 modify(tsta_graph_t* p)
 {
+  int modify_iter = 0;
   while (1) {
+    if (++modify_iter > 1000000) {
+      fprintf(stderr, "DBG modify LOOP\n");
+      return p;
+    }
     int max = INT_MIN, max_i = 0;
     for (size_t i = 0; i < p->sort.length; i++) {
       tsta_node_t* node = tsta_graph_sort_node(p, i);
@@ -493,8 +489,15 @@ modify(tsta_graph_t* p)
       return p;
 
     for (int i = 0; i < best->out; i++) {
+      if (best->next[i] >= (tsta_node_index_t)p->nodes.length)
+        fprintf(stderr, "DBG MODIFY dangling best->next[%d]=%u nodes=%llu\n",
+                i, best->next[i], (unsigned long long)p->nodes.length);
       tsta_node_t* next = tsta_graph_node(p, best->next[i]);
       for (int j = 0; j < next->in; j++) {
+        if (next->prev[j] >= (tsta_node_index_t)p->nodes.length)
+          fprintf(
+              stderr, "DBG MODIFY dangling next(%u)->prev[%d]=%u nodes=%llu\n",
+              next->id, j, next->prev[j], (unsigned long long)p->nodes.length);
         tsta_node_t* prev = tsta_graph_node(p, next->prev[j]);
         if (prev->node_sorce < best->node_sorce && prev->node_sorce > 0)
           prev->node_sorce = -prev->node_sorce;
@@ -745,7 +748,7 @@ tsta_graph_handle_trace_match(tsta_graph_t* n,
   (*new_node_count)++;
   live_flags[num2] = 1;
 
-  if (num2 > 0 && current->fsource_store && NUM2(num2 - 1) > 0
+  if (num2 > 0 && current->traces && NUM2(num2 - 1) > 0
       && ((TRACE_FSOURCE(current, NUM2(num2)) == 1
            || TRACE_FSOURCE(current, NUM2(num2)) == -1)
           || ((TRACE_FSOURCE(current, NUM2(num2)) == 2
@@ -888,6 +891,8 @@ tsta_graph_handle_trace_mismatch(tsta_graph_t* n,
             mismatch->prev, (size_t)mismatch->in * sizeof(tsta_node_index_t));
         mismatch->edge_weight = (int*)realloc(
             mismatch->edge_weight, (size_t)mismatch->in * sizeof(int));
+        mismatch->f0 =
+            (char*)realloc(mismatch->f0, (size_t)mismatch->in * sizeof(char));
         if (mismatch->prev && mismatch->edge_weight) {
           mismatch->prev[mismatch->in - 1] = seq[num2 - 1]->id;
           mismatch->edge_weight[mismatch->in - 1] = 1;
@@ -1045,7 +1050,12 @@ tsta_graph_update_impl(tsta_graph_t* n,
   tsta_graph_find_best_terminal(n, &num1);
 
   /* ── Main traceback loop ── */
+  int dbg_iter = 0;
   while (num1 != -1 && num2 != -1) {
+    if (++dbg_iter > 500000) {
+      fprintf(stderr, "DBG LOOP n1=%d n2=%d\n", num1, num2);
+      break;
+    }
     tsta_node_t* current = tsta_graph_sort_node(n, (size_t)num1);
     int trace = TRACE_SOURCE(current, NUM2(num2));
     size_t trace_parent_index = TSTA_TRACE_PARENT_SLOT(trace);
@@ -1065,22 +1075,27 @@ tsta_graph_update_impl(tsta_graph_t* n,
       tsta_node_index_t parent_index = current->prev[trace_parent_index];
       tsta_node_t* parent = tsta_graph_node(n, parent_index);
       cont = 3;
+      int esource_v = TRACE_ESOURCE(current, NUM2(num2));
+      /* The parent slot is bounded by current->in, but it is reused to index
+       * parent->prev (a different node, possibly with a smaller in-degree);
+       * guard the grandparent read to avoid out-of-bounds access. */
+      int grand_ok = trace_parent_index < (size_t)parent->in
+                     && parent->prev[trace_parent_index]
+                            < (tsta_node_index_t)n->nodes.length;
       if (parent->sub > 0
-          && ((TRACE_ESOURCE(current, NUM2(num2)) <= 42
-               && TRACE_ESOURCE(current, NUM2(num2)) >= -42)
-              || ((TRACE_ESOURCE(current, NUM2(num2)) > 42
-                   || TRACE_ESOURCE(current, NUM2(num2)) < -42)
+          && ((esource_v <= 42 && esource_v >= -42)
+              || ((esource_v > 42 || esource_v < -42) && grand_ok
                   && TRACE_ESOURCE(
                          tsta_graph_node(n, parent->prev[trace_parent_index]),
                          NUM2(num2))
                          < 0))) {
-        char s5 =
-            TRACE_ESOURCE(tsta_graph_node(n, parent->prev[trace_parent_index]),
-                          NUM2(num2))
-            % 42;
-        s5 = (s5 >= 0 ? s5 : (char)(-s5)) - 1;
-        TRACE_SOURCE_SET(tsta_graph_node(n, parent->prev[trace_parent_index]),
-                         NUM2(num2), s5);
+        if (grand_ok) {
+          tsta_node_t* grand =
+              tsta_graph_node(n, parent->prev[trace_parent_index]);
+          char s5 = TRACE_ESOURCE(grand, NUM2(num2)) % 42;
+          s5 = (s5 >= 0 ? s5 : (char)(-s5)) - 1;
+          TRACE_SOURCE_SET(grand, NUM2(num2), s5);
+        }
       }
       num1 = parent->sub;
       continue;
